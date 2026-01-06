@@ -1,0 +1,62 @@
+### Data Extraction: [INSERT SYSTEMATIC REVIEW TOPIC NAME]
+
+
+<Context>
+Act as a senior methodological reviewer. Your task is to perform high-precision data extraction for a systematic review that includes both Interventional (RCTs) and Observational (Exposure-based) study designs. Follow the 2026 PRISMA-trAIce standards for transparency.
+</Context>
+
+<Task>
+Extract the following data points into a structured JSON format. You must determine if the study investigates a planned Intervention or a natural Exposure and adapt your extraction accordingly.
+
+### EXTRACTION KEYS & DETAILED DEFINITIONS:
+- "Study_ID": [Primary author and publication year]
+- "Study_Design": [e.g., RCT, Parallel Group, Crossover, or Observational]
+- "Population_Characteristics": [Detailed demographics: age mean/SD, sex % female, ethnicity, and clinical criteria]
+- "Setting": [Context/Location: e.g., Primary care in Europe, University lab in USA]
+- "Core_Condition": {
+    "Type": [State "Intervention" if planned treatment, or "Exposure" if naturally occurring],
+    "Description": [Detailed description of the treatment OR the exposure/phenomenon being studied],
+    "Dose_Intensity_or_Level": [Duration, frequency, or severity of the intervention/exposure]
+  }
+- "Comparison_Details": [Details of the control group, placebo, or unexposed baseline group]
+- "Outcome_Measures": [Primary outcomes: scales used (e.g., BDI-II), units, and timing of assessment]
+- "Results_Raw_Data": {
+    "Intervention_or_Exposed_Group": {"Mean": [val], "SD": [val], "N": [val], "Events": [val]},
+    "Control_or_Unexposed_Group": {"Mean": [val], "SD": [val], "N": [val], "Events": [val]}
+  }
+- "RoB_Confounding_and_Selection": [Judgment; Evidence: Were baseline confounders or participant selection biased?]
+- "RoB_Sequence_Generation": [Judgment; Evidence: Was the random sequence adequately generated?]
+- "RoB_Allocation_Concealment": [Judgment; Evidence: Was the allocation hidden until enrolment?]
+- "RoB_Blinding_Participants": [Judgment; Evidence: Were participants and personnel blinded?]
+- "RoB_Blinding_Assessor": [Judgment; Evidence: Were outcome assessors blinded?]
+- "RoB_Incomplete_Outcome_Data": [Judgment; Evidence: Were attrition and exclusions addressed?]
+- "RoB_Selective_Reporting": [Judgment; Evidence: Are all pre-specified outcomes reported?]
+- "Confidence_Score": [Your confidence in this extraction from 1-100 based on text clarity]
+</Task>
+
+
+
+<Procedure>
+1. **Design Detection**: Identify the study design to determine if you are using PICO (Interventional) or PECOS (Observational) logic.
+2. **Contextual Mapping**: Read the Methods to define the Population, Exposure/Intervention, and Comparison groups.
+3. **Target Trial Emulation**: For observational studies, identify if the researchers attempted to emulate a pragmatic trial (e.g., through adjustment/matching).
+4. **Numerical Data Scrutiny**: Locate the Results/Tables to find exact Means, SDs, and N for each group. Do not calculate an effect size.
+5. **Bias Audit**: Systematically evaluate the text against the standard Cochrane Risk of Bias domains (RoB 2 for RCTs; ROBINS-I for non-randomized).
+6. **Evidence Mapping**: For every judgment, cite the exact quote from the PDF.
+</Procedure>
+
+
+<Rules>
+1. Return ONLY a JSON object. No conversational filler or markdown blocks.
+2. If data is missing, use "Not reported". NEVER fabricate data.
+3. Maintain original decimal precision for all numbers.
+4. Maintain the format: "[Judgment]; [Supporting Evidence/Quote]" for all RoB fields.
+</Rules>
+
+<TEXT>
+[PDF_CONTENT_HERE]
+</TEXT>
+
+<INSTRUCTIONS>
+Perform the extraction according to the Cochrane Gold Standard. Ensure all numerical results and bias judgments are supported by evidence from the text.
+</INSTRUCTIONS>
