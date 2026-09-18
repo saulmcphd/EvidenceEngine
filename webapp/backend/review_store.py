@@ -13,8 +13,9 @@ switch can't lose work. Delete is RECOVERABLE (moves to EE/reviews/_trash/). The
 A review's data =
   * Outputs/*            (config.json, master_records, audits, reliability, PRISMA, RIS, methods.docx ...)
   * criteria.txt         (EE/criteria.txt - the topic config)
-  * its OKF nodes        (bundle: entities/entity-screen-*, entities/entity-study-*, raise-disclosure.md,
-                          responsible-handover.md)
+  * its OKF nodes        (bundle: entities/entity-screen-*, entities/entity-study-*, entities/entity-extraction-*,
+                          entities/entity-reliability-*, entities/entity-protocol-background*,
+                          entities/entity-synthesis-draft-*, raise-disclosure.md, responsible-handover.md)
 Identity + name live in EE/reviews/<id>/manifest.json; the active pointer is EE/reviews/active.json.
 
 Crash-safety: park + load are ordered so data is always recoverable, and `_repair()` (run on every list) heals
@@ -55,8 +56,16 @@ BLANK_CRITERIA = (
     "PUBLICATION_STATUS: \n"
 )
 
-# Bundle nodes that belong to a REVIEW (move with it); everything else is the shared knowledge brain (never moves).
-_REVIEW_NODE_GLOBS = ("entities/entity-screen-*.md", "entities/entity-study-*.md")
+# Bundle nodes that belong to a REVIEW (move with it); everything else is the shared knowledge brain (never
+# moves). MUST cover every node type a review can produce, or a switch silently strands that data where the
+# NEXT review's own studies (re-numbered from REC_0001) can overwrite it on disk with no warning to anyone -
+# this list was originally missing extraction/RoB (prompter.py write_extraction_node), reliability reports
+# (reliability.py write_reliability_node), and the two AI-draft narrative nodes (protocol background,
+# synthesis sections - app.py write_ai_draft_node); found the hard way, fixed once, keep this list in sync
+# with every okf_writer.write_*_node call site that takes a bundle + writes into entities/.
+_REVIEW_NODE_GLOBS = ("entities/entity-screen-*.md", "entities/entity-study-*.md",
+                      "entities/entity-extraction-*.md", "entities/entity-reliability-*.md",
+                      "entities/entity-protocol-background*.md", "entities/entity-synthesis-draft-*.md")
 _REVIEW_TOP_NODES = ("raise-disclosure.md", "responsible-handover.md")
 
 _ID_RE = re.compile(r"^review-\d{4,}$")
