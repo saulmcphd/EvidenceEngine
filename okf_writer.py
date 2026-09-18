@@ -383,6 +383,70 @@ def write_extraction_node(bundle: Path, *, record_id: str, provenance: dict, fie
                           provenance=provenance, extra_frontmatter=extra)
 
 
+_RELIABILITY_HEADLINE_FIELDS = [
+    "recall_HEADLINE", "recall_95ci_twosided", "recall_95_onesided_lower", "positives_in_human",
+    "missed_relevant_FN", "acceptance_threshold", "acceptance_verdict", "threshold_independent",
+    "fbeta", "beta", "precision_secondary", "specificity_secondary", "f1_secondary",
+    "auc_secondary", "wss_at_recall", "kappa", "kappa_95ci", "kappa_band",
+]
+
+
+def write_reliability_node(bundle: Path, *, stage: str, metrics: dict, provenance: dict,
+                           metrics_path: str = "") -> Path:
+    """Emit one reliability-report node: AI-vs-BLIND-human screening agreement (recall/F-beta/kappa/etc.).
+    Every other stage (screening, extraction) writes its output as an OKF node with full RAISE provenance;
+    reliability computed all the right numbers but only ever wrote a plain metrics.json/markdown report
+    OUTSIDE the bundle - invisible to okf_tools lint and to a Report/compliance check that traces every
+    claim to a node. `metrics` is the dict `reliability.screening_metrics()`/`run_screening()` returns;
+    only a curated headline subset is tabled (the full numbers stay in `metrics_path` for traceability -
+    the raw dict is not dumped verbatim, since it can carry nested per-stratum objects a markdown table
+    can't render cleanly)."""
+    stage_label = (stage or "screening").strip()
+    slug = f"reliability-{stage_label}"
+    title = f"Reliability report - {stage_label}"
+
+    def _fmt(v):
+        if isinstance(v, float):
+            return f"{v:.4f}"
+        if isinstance(v, (list, tuple)):
+            return "[" + ", ".join(_fmt(x) for x in v) + "]"
+        return str(v)
+
+    r = metrics.get("recall_HEADLINE")
+    ci = metrics.get("recall_95ci_twosided") or [None, None]
+    verdict = metrics.get("acceptance_verdict") or ""
+    desc = (f"AI-vs-blind-human {stage_label} screening reliability: recall="
+            + (_fmt(r) if r is not None else "not estimable")
+            + (f" (95% CI {_fmt(ci)})" if ci and ci[0] is not None else "")
+            + (f"; verdict={verdict}" if verdict else "") + ".")
+
+    rows = "\n".join(
+        f"| {k} | {_fmt(metrics[k])} |" for k in _RELIABILITY_HEADLINE_FIELDS
+        if metrics.get(k) is not None)
+    caveats = metrics.get("_caveats") or []
+    caveats_md = "\n".join(f"- {_safe_text(_sanitize(str(c)))}" for c in caveats) if caveats else "(none recorded)"
+    extra = [("kind", "reliability-report"), ("stage", "reliability"), ("screening_stage", stage_label)]
+
+    body = (f"# Reliability report ({stage_label})\n\n"
+            "AI second-screener performance measured against INDEPENDENT, BLIND human decisions - the "
+            "human decided before seeing any AI output; never a reconciled consensus that already "
+            "contains the AI being measured (that would inflate agreement).\n\n"
+            "| Metric | Value |\n| --- | --- |\n" + (rows or "| (no headline metrics recorded) | |") + "\n\n"
+            "# Referee caveats (self-documenting)\n\n" + caveats_md + "\n\n"
+            + (f"# Full metrics\n\nComplete per-run numbers (incl. any stratified breakdowns): `{metrics_path}`\n\n"
+               if metrics_path else "")
+            + "# Provenance\n\n"
+            "Reports on the AI screener's performance; `human_verified` reflects whether a human has "
+            "checked this report's interpretation, not the underlying screening decisions (those are "
+            "verified separately at reconciliation).\n\n"
+            "# Related\n\n"
+            "* [Reliability playbook](/playbooks/playbook-reliability.md) - the evaluation procedure\n"
+            "* [AI provenance](/concepts/concept-ai-provenance.md) - provenance requirement\n")
+    return write_okf_node(bundle, type="entity", slug=slug, title=title, description=desc, body=body,
+                          tags=["reliability", "recall", "raise", stage_label],
+                          provenance=provenance, extra_frontmatter=extra)
+
+
 def write_ai_draft_node(bundle: Path, *, slug: str, kind: str, stage: str, title: str,
                         description: str, provenance: dict, ai_text: str,
                         section_label: str = "", related: list | None = None) -> Path:

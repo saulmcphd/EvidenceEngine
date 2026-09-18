@@ -617,6 +617,45 @@ def format_report(title: str, payload: dict) -> str:
     return f"# {title}\n\n```json\n{json.dumps(payload, indent=2, default=str)}\n```\n"
 
 
+def _write_reliability_okf_node(ai_csv, stage, metrics, metrics_path) -> None:
+    """Write the reliability report into the OKF bundle (RAISE 1.8/1.9a provenance) - non-fatal, mirroring
+    every other stage's producer: a bundle-writing problem must never break a reliability run. Provenance
+    names the AI screener BEING MEASURED (read from the audit CSV's own model/prompt_file/prompt_version
+    columns, already written there by screener_abstract.py/screener_fulltext.py), not the reliability
+    computation itself (which is deterministic maths, not an AI judgement)."""
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import okf_writer
+
+        model_val = prompt_file_val = prompt_version_val = ""
+        try:
+            ai_df = pd.read_csv(ai_csv, nrows=1).fillna("")
+            mc, pfc, pvc = _col(ai_df, "model"), _col(ai_df, "prompt_file"), _col(ai_df, "prompt_version")
+            if mc:
+                model_val = str(ai_df[mc].iloc[0]).strip()
+            if pfc:
+                prompt_file_val = str(ai_df[pfc].iloc[0]).strip()
+            if pvc:
+                prompt_version_val = str(ai_df[pvc].iloc[0]).strip()
+        except Exception:
+            pass
+        if not model_val:
+            print("OKF: skipped reliability node (AI audit file carries no 'model' column to attribute it to)")
+            return
+
+        prov = okf_writer.build_provenance(
+            model_val, prompt_file_val or "reliability.py",
+            prompt_version=prompt_version_val or None)
+        bundle = okf_writer.okf_tools.find_bundle(None)
+        okf_writer.write_reliability_node(bundle, stage=stage or "screening", metrics=metrics,
+                                          provenance=prov, metrics_path=str(metrics_path))
+        okf_writer.write_index(bundle)
+        print(f"OKF: wrote reliability report node (stage={stage or 'screening'}, human_verified:false) in {bundle}")
+    except Exception as e:  # noqa: BLE001 - OKF writing is best-effort, never fatal
+        print(f"OKF: skipped reliability node writing ({e})")
+
+
 def run_screening(human_csv, ai_csv, outdir="Outputs/reliability", stage=None,
                   recall_threshold=None, stratify=None, beta=3.0, beta_rationale=None,
                   threshold_independent=False) -> dict:
@@ -632,7 +671,9 @@ def run_screening(human_csv, ai_csv, outdir="Outputs/reliability", stage=None,
     out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
     (out / f"screening-metrics{('-' + stage) if stage else ''}.md").write_text(
         format_report(f"AI screening reliability{(' - ' + stage) if stage else ''}", metrics), encoding="utf-8")
-    (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
+    metrics_path = out / "metrics.json"
+    metrics_path.write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
+    _write_reliability_okf_node(ai_csv, stage, metrics, metrics_path)
     r, ci = metrics["recall_HEADLINE"], metrics["recall_95ci_twosided"]
     print(f"Recall (headline): {r:.3f}  95% CI [{ci[0]:.3f}, {ci[1]:.3f}]  on {metrics['positives_in_human']} "
           f"positives | F-beta({beta:g})={metrics['fbeta']:.3f} | missed (FN)={metrics['missed_relevant_FN']}")
