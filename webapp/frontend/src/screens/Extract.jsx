@@ -198,7 +198,10 @@ export default function Extract() {
                           <td style={{ fontSize: 11, maxWidth: 210 }}>
                             {blind && !f.human ? <span className="muted">hidden</span>
                               : f.source_locus
-                                ? <span className="muted" title={f.source_locus}>“{f.source_locus.length > 90 ? f.source_locus.slice(0, 90) + '…' : f.source_locus}”</span>
+                                ? <span className="muted" title={f.source_locus}>
+                                    “{f.source_locus.length > 90 ? f.source_locus.slice(0, 90) + '…' : f.source_locus}”
+                                    {f.source_locus_verified === false && <span className="hflag" title="This quote could not be found in the study PDF">⚠ not found in PDF</span>}
+                                  </span>
                                 : f.no_locus ? <span className="hflag" title="AI gave a value with no source — verify against the paper">⚠ no source</span>
                                   : <span className="muted">—</span>}
                           </td>

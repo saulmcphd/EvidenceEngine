@@ -1355,12 +1355,16 @@ def _norm(s) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(s).lower()).strip()
 
 
-def _pdf_path(record_id, m=None):
-    """Find the full-text PDF for a record (REC-id in filename → DOI/title/author-year via the master row)."""
-    if not PDFDIR.exists():
+def _pdf_path(record_id, m=None, pdfdir=None):
+    """Find a full-text PDF for a record in `pdfdir` (REC-id in filename → DOI/title/author-year via the
+    master row). Defaults to PDFDIR (PDFs/FullText_Candidates/, the full-text-SCREENING folder) — pass
+    STUDY_PDFDIR (PDFs/, prompter.py's own input folder) for a RoB/extraction PDF. These are NOT the same
+    folder, so a caller checking a RoB/extraction quote must say so explicitly (see _study_pdf_path)."""
+    d = pdfdir if pdfdir is not None else PDFDIR
+    if not d.exists():
         return None
     rid = record_id.upper().replace("_", "")
-    for p in PDFDIR.glob("*.pdf"):
+    for p in d.glob("*.pdf"):
         if rid and rid in p.stem.upper().replace("_", "").replace("-", ""):
             return p
     if m is not None and record_id in m.index:
@@ -1368,7 +1372,7 @@ def _pdf_path(record_id, m=None):
         doi, title = _norm(r.get("doi", "")), _norm(r.get("title", ""))
         au = _norm(str(r.get("authors", "")).split(";")[0].split(",")[0])
         yr = str(r.get("year", "")).strip()
-        for p in PDFDIR.glob("*.pdf"):
+        for p in d.glob("*.pdf"):
             stem = _norm(p.stem)
             if doi and len(doi) > 6 and doi in stem:
                 return p
@@ -1377,6 +1381,36 @@ def _pdf_path(record_id, m=None):
             if au and yr and au in stem and yr in stem:
                 return p
     return None
+
+
+def _study_pdf_path(record_id, m=None):
+    """The PDF to verify a RoB/extraction quote against: prompter.py reads from STUDY_PDFDIR (PDFs/), which
+    the full-text screener's _pdf_path(default) does NOT search (it only looks in PDFs/FullText_Candidates/).
+    Tries STUDY_PDFDIR first, falling back to PDFDIR in case a user only ever uploaded to that folder."""
+    return _pdf_path(record_id, m, pdfdir=STUDY_PDFDIR) or _pdf_path(record_id, m, pdfdir=PDFDIR)
+
+
+# A locus that names a table/figure position rather than quoting a sentence (e.g. "Table 2, 12-week row") is
+# legitimate per promptfile.txt's Source_Quotes instruction but will never appear verbatim in the extracted
+# text — checking it as a quote would just manufacture false "not verified" flags on correct citations.
+_TABLE_LOCUS_RE = re.compile(r"^\s*(table|figure|fig\.?|appendix|supp)\b", re.IGNORECASE)
+
+
+def _quote_verify(record_id, quote, m=None):
+    """Verify an AI-supplied quote/locus against the study's own PDF (the same defence full-text screening
+    already has, extended to RoB and extraction — a fabricated quote there is exactly the failure mode both
+    playbooks call out as mattering most). Returns True/False, or None when verification isn't meaningful:
+    no quote given, no PDF found, or the text looks like a table/figure locus rather than a verbatim quote."""
+    q = str(quote or "").strip()
+    if not q or _TABLE_LOCUS_RE.match(q) or q.lower() in ("not reported", "not applicable"):
+        return None
+    p = _study_pdf_path(record_id, m)
+    if not p or not p.exists():
+        return None
+    text = _pdf_text(p)
+    if not text.strip():          # scanned/image-only PDF — can't confirm OR refute, so don't claim either
+        return None
+    return _norm(q) in _norm(text)
 
 
 def _pdf_text(path) -> str:
@@ -2157,6 +2191,37 @@ def _rob_tool_for(sdf) -> str:
     return "auto"
 
 
+# Severity rank per tool for "overall = worst reconciled domain" (Cochrane: the overall is AT LEAST as severe
+# as the worst domain). ROBINS-I 'No information' is deliberately excluded — it means the evidence to judge
+# is missing, not a severity level, and must never outrank Critical (which would hide a synthesis-excluding
+# result). This is the single server-side source of truth; the RoB screen used to compute the same thing in
+# the browser only, so the finalised verdict was never actually SAVED anywhere else could read it.
+_ROB_OVERALL_RANK = {
+    "RoB2": {"Low": 0, "Some concerns": 1, "High": 2},
+    "ROBINS-I": {"Low": 0, "Moderate": 1, "Serious": 2, "Critical": 3},
+}
+
+
+def _rob_overall_from_consensus(sdf, tool: str) -> str:
+    """The finalised RoB overall verdict for one study, from its RECONCILED (Consensus_Value) domain
+    judgements only — never the AI's raw proposals (the AI never gets the last word on the roll-up, that's
+    the human's call per playbook-risk-of-bias step 8). '' if the tool isn't resolved or no domain has been
+    reconciled yet."""
+    rank = _ROB_OVERALL_RANK.get(tool) or {}
+    domains = ROBINSI_DOMAINS if tool == "ROBINS-I" else (ROB2_DOMAINS if tool == "RoB2" else [])
+    worst = None
+    for key, _label in domains:
+        hit = sdf[sdf["Variable_Name"] == key]
+        if not len(hit):
+            continue
+        v = str(hit.iloc[0]["Consensus_Value"]).strip()
+        if v not in rank:
+            continue
+        if worst is None or rank[v] > rank[worst]:
+            worst = v
+    return worst or ""
+
+
 def _audit_studies():
     """Studies present in the AI audit: [{record_id, file, title, fields, reconciled}]. `fields`/`reconciled`
     count only the human-RECONCILABLE EXTRACTION rows (the RoB domains are reconciled on the §6 screen; RoB_Tool
@@ -2328,8 +2393,13 @@ def rob_detail(record_id: str, blind: bool = False, tool: str = ""):
         hit = sdf[sdf["Variable_Name"] == key]
         ai_raw = str(hit.iloc[0]["AI_Extracted_Value"]) if len(hit) else ""
         ai_j, ai_q = _split_jq(ai_raw)
+        # Confabulation guard (MECIR C54/C55 already requires the quote; this checks it's REAL): a domain
+        # whose quote can't be found in the study's own PDF is flagged the same way full-text screening
+        # already flags an unverifiable exclusion quote — surfaced, never auto-resolved.
+        qv = None if blind else _quote_verify(record_id, ai_q, m=_master())
         rows.append({"key": key, "label": label,
                      "ai_judgment": "" if blind else ai_j, "ai_quote": "" if blind else ai_q,
+                     "ai_quote_verified": qv,
                      "human": (str(hit.iloc[0]["Manual_Value"]) if len(hit) else ""),
                      "consensus": (str(hit.iloc[0]["Consensus_Value"]) if len(hit) else "")})
 
@@ -2359,8 +2429,13 @@ def rob_detail(record_id: str, blind: bool = False, tool: str = ""):
                                "ai_stage": "" if blind else _cell("Notable_Concern_COI · Trial_Stage")["ai"],
                                "human": nc["human"], "consensus": nc["consensus"]}}
     title, authors, year = _study_meta(record_id)
+    # The finalised overall (worst RECONCILED domain) — computed server-side (see _rob_overall_from_consensus)
+    # so it's a real saved value any other part of the app can read, not something that only ever existed in
+    # this screen's own browser tab.
+    overall = _rob_overall_from_consensus(sdf, tool)
     return {"record_id": record_id, "title": title, "authors": authors, "year": year, "tool": tool,
-            "levels": levels, "domains": rows, "coi": coi, "blind": blind, "audit_file": fname, "demo": fname is None}
+            "levels": levels, "domains": rows, "coi": coi, "blind": blind, "audit_file": fname,
+            "demo": fname is None, "overall": overall}
 
 
 @app.post("/api/rob/judge")
@@ -2420,13 +2495,18 @@ def extract_detail(record_id: str):
         # (concept-hallucination-evaluation: a confident value with no source is the manufacture-on-absence risk).
         locus = str(r.get("Audit_Notes", "")).strip()
         real_val = ai.strip() and ai.strip().lower() not in ("not reported", "not applicable", "")
+        # Same confabulation guard as full-text screening and RoB: check the source quote/locus is REALLY
+        # in the study's PDF. None when the locus isn't a checkable verbatim quote (a table/figure
+        # reference, or simply absent) — see _quote_verify.
+        locus_verified = _quote_verify(record_id, locus, m=_master())
         fields.append({"variable": var, "ai": ai, "human": str(r["Manual_Value"]),
                        "consensus": str(r["Consensus_Value"]), "match": str(r["Match? (Y/N)"]),
                        "error_category": err, "hallucination": bool(hallucination),
-                       "source_locus": locus, "no_locus": bool(real_val and not locus)})
+                       "source_locus": locus, "no_locus": bool(real_val and not locus),
+                       "source_locus_verified": locus_verified})
     title, authors, year = _study_meta(record_id)
     return {"record_id": record_id, "title": title, "authors": authors, "year": year,
-            "fields": fields, "ai_confidence": ai_confidence, "audit_file": fname, "demo": True}
+            "fields": fields, "ai_confidence": ai_confidence, "audit_file": fname, "demo": fname is None}
 
 
 @app.post("/api/extract/value")
@@ -2452,7 +2532,7 @@ def extract_agreement():
     except Exception as e:
         return {"error": "compute_failed", "message": str(e), "has_audit": True, "audit_file": fname}
     reconciled = int((data["Consensus_Value"].astype(str).str.strip() != "").sum())
-    return {"has_audit": True, "audit_file": fname, "agreement": res, "demo": True,
+    return {"has_audit": True, "audit_file": fname, "agreement": res, "demo": fname is None,
             "reconciled_fields": reconciled, "total_fields": int(len(data))}
 
 
@@ -4850,7 +4930,7 @@ def _evidence_table() -> dict:
     'your extraction data' (the reconciled Consensus is the review's data — concept-dual-data-extraction §5.5.5)."""
     inc, stage, decided_by, reconciled = _evidence_included()
     df, _name = _audit_df()
-    audit = {}
+    audit, rob_overall = {}, {}
     if df is not None:
         for fn, g in df.groupby("FileName"):
             d = {}
@@ -4865,7 +4945,9 @@ def _evidence_table() -> dict:
                 ai = str(r.get("AI_Extracted_Value", "")).strip()
                 val = cons or manual or ai
                 d[var] = {"val": val, "unrec": bool(val and val == ai and not (cons or manual))}
-            audit[_aud_rid(fn)] = d
+            rid_g = _aud_rid(fn)
+            audit[rid_g] = d
+            rob_overall[rid_g] = _rob_overall_from_consensus(g, _rob_tool_for(g))
 
     def pick(d, *names):
         for n in names:
@@ -4890,7 +4972,8 @@ def _evidence_table() -> dict:
         d = audit.get(rid, {})
         first = (authors.split(";")[0].split(",")[0].strip() if authors else "")
         ref = (f"{first} ({year})" if first and year else first or (title[:48] if title else rid))
-        row = {"record_id": rid, "reference": ref, "title": title, "any_unreconciled": False}
+        row = {"record_id": rid, "reference": ref, "title": title, "any_unreconciled": False,
+               "risk_of_bias": rob_overall.get(rid, "")}
         for field, keys in fields:
             v, unrec = pick(d, *keys)
             row[field] = v
@@ -4967,11 +5050,12 @@ def _synthesis_md() -> tuple:
                       "reviewed/reconciled — it is provisional, not the review's data. Reconcile it on the "
                       "Data-extraction screen before publishing.*")
             md.append("")
-        md.append("| Reference | Design | Population | Intervention/Exposure | Outcome | Results |")
-        md.append("| :-- | :-- | :-- | :-- | :-- | :-- |")
+        md.append("| Reference | Design | Population | Intervention/Exposure | Outcome | Results | Risk of bias |")
+        md.append("| :-- | :-- | :-- | :-- | :-- | :-- | :-- |")
         for r in table["rows"]:
             fields = ("design", "population", "intervention", "outcome", "results")
-            cells = [r["reference"]] + [(str(r[f]) + (" ⚠" if r.get(f + "_unreconciled") else "")) for f in fields]
+            cells = [r["reference"]] + [(str(r[f]) + (" ⚠" if r.get(f + "_unreconciled") else "")) for f in fields] \
+                + [r.get("risk_of_bias", "")]
             md.append("| " + " | ".join((c or "____").replace("\n", " ").replace("|", "/") for c in cells) + " |")
     else:
         md.append("____ (no included studies with extracted data yet — run screening + extraction first).")

@@ -1,13 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api.js'
 
-// Severity RANK per tool for the "overall = worst domain" guidance. ROBINS-I 'No information' is NOT
-// a severity — it means the evidence to judge is missing — so it is excluded from the worst-domain
-// calc (it must never outrank Critical, which would hide a synthesis-excluding result).
-const RANK = {
-  RoB2: { 'Low': 0, 'Some concerns': 1, 'High': 2 },
-  'ROBINS-I': { 'Low': 0, 'Moderate': 1, 'Serious': 2, 'Critical': 3 },
-}
 const pillClass = (v) => {
   const s = String(v || '').toLowerCase()
   if (s === 'low') return 'inc'
@@ -65,13 +58,11 @@ export default function RoB() {
     }).catch(e => { setBusy(false); setRunMsg(String(e)) })
   }
 
-  const overall = (() => {
-    if (!detail || !detail.domains) return null
-    const rank = RANK[detail.tool] || {}
-    const ranked = detail.domains.map(d => d.consensus).filter(v => v in rank)   // 'No information' excluded
-    if (!ranked.length) return null
-    return ranked.reduce((w, v) => (rank[v] > rank[w] ? v : w), ranked[0])
-  })()
+  // Server-computed (see _rob_overall_from_consensus in app.py) from the SAME reconciled domain values this
+  // screen edits, so it's an actual saved verdict other parts of the app can read too, not something that
+  // only ever existed in this browser tab (recomputed live on every /rob/detail load, so it's always in
+  // sync with whatever was just reconciled — no separate "save" step needed).
+  const overall = detail?.overall || null
 
   if (err) return <div className="warn">Could not load: {err}</div>
 
@@ -166,7 +157,16 @@ export default function RoB() {
                           {blind ? <span className="muted" style={{ fontSize: 12 }}>hidden</span>
                             : d.ai_judgment ? <span className={'pill ' + pillClass(d.ai_judgment)}>{d.ai_judgment}</span>
                             : <span className="muted" style={{ fontSize: 12 }}>—</span>}
-                          {!blind && d.ai_quote && <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>“{d.ai_quote}”</div>}
+                          {!blind && d.ai_quote && (
+                            <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                              “{d.ai_quote}”
+                              {d.ai_quote_verified === false && (
+                                <div className="warn" style={{ fontSize: 11, marginTop: 3 }}>
+                                  ⚠ This quote could not be found in the study PDF — check it before trusting the AI's judgement.
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div>
                           <div className="dlab">Your judgement</div>
