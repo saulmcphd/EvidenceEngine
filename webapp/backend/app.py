@@ -4681,11 +4681,17 @@ _PICO_KEY = {"population": "PICO_P", "intervention": "PICO_I", "exposure": "PICO
 
 def _assemble_criteria(fields: dict, cfg: dict) -> str:
     """Build the canonical criteria.txt from the structured fields + config.json (PICO from Review details).
-    ROB_TOOL is preserved from the existing file / config (managed by the RoB picker)."""
+    ROB_TOOL and the RoB framing fields (ROB_EFFECT_OF_INTEREST/ROB_TARGET_TRIAL/ROB_CONFOUNDERS - read by
+    prompter.py's RoB pass, see playbook-risk-of-bias step 3) are preserved from the existing file, since this
+    function otherwise rebuilds criteria.txt from scratch on every Setup-form save and would silently wipe
+    any of these a Setup screen doesn't (yet) have its own editor for."""
     rows = _framework_rows(cfg)
     comps = cfg.get("components", {}) or {}
-    rob = ((_parse_criteria(CRIT.read_text(encoding="utf-8")).get("ROB_TOOL") if CRIT.exists() else "")
-           or cfg.get("rob_tool", "") or "auto").strip()
+    existing = _parse_criteria(CRIT.read_text(encoding="utf-8")) if CRIT.exists() else {}
+    rob = (existing.get("ROB_TOOL") or cfg.get("rob_tool", "") or "auto").strip()
+    rob_effect = (existing.get("ROB_EFFECT_OF_INTEREST") or "").strip()
+    rob_trial = (existing.get("ROB_TARGET_TRIAL") or "").strip()
+    rob_confounders = (existing.get("ROB_CONFOUNDERS") or "").strip()
     L = ["# EvidenceEngine shared topic config.",
          "# Read VERBATIM by the AI screener (screener_abstract.py / screener_fulltext.py) and by the human reviewer.",
          "# Assembled from the Setup form (edit the structured boxes there, or toggle raw edit).",
@@ -4711,6 +4717,12 @@ def _assemble_criteria(fields: dict, cfg: dict) -> str:
         L += [f"- {c}" for c in ex]
     L.append("")
     L.append(f"ROB_TOOL: {rob}" + ("   # auto = RoB2 for RCTs, ROBINS-I for observational" if rob == "auto" else ""))
+    L.append(f"ROB_EFFECT_OF_INTEREST: {rob_effect}" +
+             ("   # assignment (ITT) or adherence (per-protocol) - fix before scoring RoB2 Domain 2" if not rob_effect else ""))
+    L.append(f"ROB_TARGET_TRIAL: {rob_trial}" +
+             ("   # ROBINS-I only: the hypothetical pragmatic RCT being emulated" if not rob_trial else ""))
+    L.append(f"ROB_CONFOUNDERS: {rob_confounders}" +
+             ("   # ROBINS-I only: the a-priori confounder + co-intervention list" if not rob_confounders else ""))
     L.append(f"DATE_RANGE: {(fields.get('date_range', '') or '').strip() or 'no limit'}")
     L.append(f"LANGUAGE: {(fields.get('language', '') or '').strip()}")
     L.append(f"PUBLICATION_STATUS: {(fields.get('publication_status', '') or '').strip()}")

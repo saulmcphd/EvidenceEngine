@@ -9,9 +9,9 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-# API Providers
-from anthropic import Anthropic
-from openai import OpenAI
+# Gemini is the default fast-path (context caching cuts input cost ~90% on the shared system prompt - see
+# get_ai_response). Any other provider routes through LiteLLM instead (imported lazily in get_ai_response so
+# a Gemini-only run never needs it installed) - this LOSES the caching saving, documented in PLAN.md.
 from google import genai
 from google.genai import types
 
@@ -56,8 +56,12 @@ AUDIT_COLS = ['FileName', 'Variable_Name', 'AI_Extracted_Value', 'Manual_Value',
               'Match? (Y/N)', 'Error_Category', 'Consensus_Value', 'Audit_Notes']
 _QUOTE_PREFIX = "Source_Quotes · "
 # Run-level / non-field columns that must NEVER become a reconcilable audit row (else they inflate the field
-# count and block the OKF node's all-fields-reconciled flip).
-_AUDIT_META = {'FileName', 'Status', 'Cost_USD', 'Savings_USD', 'ProcessingTime', 'Error', 'prompt_version'}
+# count and block the OKF node's all-fields-reconciled flip). Confidence_Score is the AI's OWN self-rating,
+# not something a human can independently re-derive from the paper — reconciling it against a "Manual_Value"
+# makes no sense, so it's excluded the same way the web UI already special-cases it (Extract.jsx), but here
+# in the shared CSV every consumer reads, not just that one screen.
+_AUDIT_META = {'FileName', 'Status', 'Cost_USD', 'Savings_USD', 'ProcessingTime', 'Error', 'prompt_version',
+               'Confidence_Score'}
 
 
 def build_audit_records(results):
@@ -93,9 +97,17 @@ def build_audit_records(results):
 
     rows = []
     for r in results:
-        if r.get('Status') != 'SUCCESS':
-            continue
         fn = str(r.get('FileName', ''))
+        if r.get('Status') != 'SUCCESS':
+            # A failed extraction (bad scan, garbled AI reply, API error) must never just vanish from the
+            # reconcilable artefact - that is exactly the silent-narrowing failure mode the playbook forbids.
+            # One flagged row makes the study visible to a human instead of only surviving as a Status='FAIL'
+            # row in the wide Research_Data_*.xlsx that nobody scrolls through looking for it.
+            rows.append({'FileName': fn, 'Variable_Name': 'EXTRACTION_STATUS',
+                         'AI_Extracted_Value': f"FAILED: {r.get('Error', '(no error message)')}",
+                         'Manual_Value': "", 'Match? (Y/N)': "", 'Error_Category': 'needs_manual_extraction',
+                         'Consensus_Value': "", 'Audit_Notes': "AI extraction failed - extract this study by hand"})
+            continue
         quotes, data = {}, {}
         for k, v in r.items():
             if k in _AUDIT_META:
@@ -126,8 +138,16 @@ def build_audit_records(results):
     return rows
 
 
+_MIN_TEXT_CHARS = 200   # below this for a real PDF, it's almost certainly a scan with no text layer
+
+
 def extract_text_advanced(pdf_path):
-    """Accurately extracts text for complex research tables."""
+    """Accurately extracts text for complex research tables. A PDF that opens fine but yields (near-)no
+    text - a scanned/image-only page with no OCR layer - is flagged as an error here too, not just a hard
+    pdfplumber exception: otherwise it silently reaches the AI as an almost-blank document, which tends to
+    come back as a confident-looking record full of 'Not reported' that reads as a real (if data-poor)
+    extraction rather than the technical failure it actually is (playbook-data-extraction Step 1: a study
+    with no extractable text must be flagged for manual extraction / OCR, never silently sent through)."""
     text = ""
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -135,6 +155,10 @@ def extract_text_advanced(pdf_path):
                 page_text = page.extract_text(x_tolerance=2, y_tolerance=2)
                 if page_text:
                     text += page_text + "\n"
+        if len(text.strip()) < _MIN_TEXT_CHARS:
+            return (f"ERROR_NO_EXTRACTABLE_TEXT: only {len(text.strip())} character(s) of text found - this "
+                    f"looks like a scanned/image-only PDF with no text layer. Run it through OCR (the `pdf` "
+                    f"skill) or extract it by hand.")
         return text
     except Exception as e:
         return f"ERROR_TEXT_EXTRACTION: {str(e)}"
@@ -159,8 +183,11 @@ def calculate_gemini_savings(usage):
     
     return round(actual_cost, 5), round(no_cache_cost - actual_cost, 5)
 
-def get_ai_response(provider, model_name, prompt_content, cache_name=None):
-    """Routes request with cache support for Gemini."""
+def get_ai_response(provider, model_name, prompt_content, cache_name=None, system_prompt=None):
+    """Routes the request. 'gemini' uses the fast-path WITH explicit context caching (the ~90% input saving);
+    any other provider routes through LiteLLM (provider-agnostic, but no equivalent to Gemini's cached-content
+    API, so the system prompt is re-sent in full on every call - the documented cost trade-off for provider
+    choice). `system_prompt` is only used on the LiteLLM path (Gemini gets it via `cache_name`)."""
     try:
         if provider == "gemini":
             client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
@@ -168,7 +195,7 @@ def get_ai_response(provider, model_name, prompt_content, cache_name=None):
                 cached_content=cache_name,
                 temperature=0
             ) if cache_name else types.GenerateContentConfig(temperature=0)
-            
+
             resp = client.models.generate_content(
                 model=model_name,
                 contents=prompt_content,
@@ -176,12 +203,65 @@ def get_ai_response(provider, model_name, prompt_content, cache_name=None):
             )
             cost, saved = calculate_gemini_savings(resp.usage_metadata)
             return resp.text, cost, saved
-        # Add OpenAI/Anthropic fallbacks here if needed...
-        return "ERROR: Provider Not Supported", 0, 0
+
+        import litellm
+        messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + \
+                   [{"role": "user", "content": prompt_content}]
+        resp = litellm.completion(model=model_name, messages=messages, temperature=0)
+        try:
+            cost = round(float(litellm.completion_cost(completion_response=resp) or 0), 5)
+        except Exception:
+            cost = 0.0   # a provider/model litellm can't price - report 0 rather than guess
+        return resp["choices"][0]["message"]["content"], cost, 0.0   # no caching saving on this path
     except Exception as e:
         raise Exception(f"API Error ({provider}): {str(e)}")
 
-def process_file(pdf_file, provider, model_name, cache_name=None):
+def _first_json_object(text: str) -> str | None:
+    """Slice out the first balanced {...} block, ignoring anything before/after it."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def parse_extraction_json(raw_result: str) -> dict:
+    """Defensively parse the model's JSON. One stray token (a bare ``` fence, a leading sentence, no fence
+    at all) used to throw the whole study away as a FAIL with no attempt to recover it - the same robust-parse
+    idiom already used by screener_abstract.py/screener_fulltext.py, applied here too (still-open PROGRESS.md
+    TODO: 'robust JSON parser added'). Raises ValueError with the LAST error if nothing works, so the caller's
+    existing FAIL handling is unchanged."""
+    candidate = raw_result.strip()
+    attempts = [candidate]
+    if "```" in candidate:
+        m = re.search(r"```(?:json)?\s*(.*?)```", candidate, re.DOTALL)
+        if m:
+            attempts.append(m.group(1).strip())
+    elif "```json" in candidate:   # pre-existing simple case, kept for identical behaviour when it applies
+        attempts.append(candidate.split("```json")[1].split("```")[0].strip())
+    stripped = _first_json_object(candidate)
+    if stripped:
+        attempts.append(stripped)
+
+    last_err = None
+    for attempt in attempts:
+        if not attempt:
+            continue
+        try:
+            return json.loads(attempt)
+        except json.JSONDecodeError as e:
+            last_err = e
+    raise ValueError(f"could not parse a JSON object from the model's response ({last_err})")
+
+
+def process_file(pdf_file, provider, model_name, cache_name=None, system_prompt=None):
     """Processes a single PDF and returns structured data."""
     start_time = datetime.now()
     text = extract_text_advanced(pdf_file)
@@ -189,12 +269,8 @@ def process_file(pdf_file, provider, model_name, cache_name=None):
         return {'FileName': pdf_file.name, 'Status': 'FAIL', 'Error': text}
 
     try:
-        raw_result, cost, saved = get_ai_response(provider, model_name, text, cache_name)
-        clean_json = raw_result.strip()
-        if "```json" in clean_json:
-            clean_json = clean_json.split("```json")[1].split("```")[0].strip()
-        
-        extracted_data = flatten_record(json.loads(clean_json))   # one field per statistic / RoB domain
+        raw_result, cost, saved = get_ai_response(provider, model_name, text, cache_name, system_prompt)
+        extracted_data = flatten_record(parse_extraction_json(raw_result))   # one field per statistic / RoB domain
         extracted_data.update({
             'FileName': pdf_file.name,
             'Status': 'SUCCESS',
@@ -205,6 +281,40 @@ def process_file(pdf_file, provider, model_name, cache_name=None):
         return extracted_data
     except Exception as e:
         return {'FileName': pdf_file.name, 'Status': 'FAIL', 'Error': str(e)}
+
+def _review_context_block(criteria_path: Path) -> str:
+    """Build the [REVIEW_CONTEXT] block promptfile.txt's <Context> expects: the review's PRE-SPECIFIED
+    RoB framing (effect of interest, target trial, a-priori confounder list) read from criteria.txt, so the
+    AI rates bias against the review's own committed choices instead of its background knowledge of
+    RoB2/ROBINS-I (playbook-risk-of-bias.md step 3: 'fix the two framing decisions before scoring'; pull the
+    confounder/co-intervention list from criteria.txt/the protocol, never off the included study itself).
+    Missing fields degrade to an honest 'not specified' rather than silently omitting the section."""
+    fields = {}
+    if criteria_path.exists():
+        for raw in criteria_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = re.match(r"^([A-Z][A-Z0-9_/]+):\s*(.*)$", line)
+            if m:
+                fields[m.group(1)] = re.sub(r"\s+#.*$", "", m.group(2)).strip()
+
+    def _v(key, label, default="not specified — apply Cochrane Handbook Ch.8 default guidance"):
+        val = fields.get(key, "").strip()
+        return f"- {label}: {val or default}"
+
+    lines = [
+        _v("REVIEW_TOPIC", "Review topic", default="not specified"),
+        _v("ROB_EFFECT_OF_INTEREST", "Effect of interest for RoB 2 Domain 2",
+           default="not specified — default to ASSIGNMENT (intention-to-treat), the usual policy question"),
+        _v("ROB_TARGET_TRIAL", "Target trial being emulated (ROBINS-I only)",
+           default="not specified — infer the implied pragmatic RCT from the study's own stated aim"),
+        _v("ROB_CONFOUNDERS", "A-priori confounder / co-intervention list (ROBINS-I Domain 1 only)",
+           default="not specified — judge confounding against the standard confounders for this topic per "
+                   "Cochrane Ch.8, and flag in your rationale that no review-specific list was supplied"),
+    ]
+    return "\n".join(lines)
+
 
 def _form_version(prompt_text: str) -> str:
     """The extraction form's human-readable version (Cochrane §5.4.3 Step 4: a version number + date so a
@@ -219,19 +329,32 @@ def _form_version(prompt_text: str) -> str:
 
 
 def main():
-    CHOSEN_PROVIDER = "gemini"
-    CHOSEN_MODEL = "gemini-2.5-flash"
-
     # Pilot mode (Cochrane C43 pilot-and-revise loop): --limit N runs the AI extractor over only the first N
     # included PDFs so a reviewer can trial the form, check the values against source, revise, and re-run — the
     # mandatory pilot the screener already offers. 0 = the full run. Mirrors screener_*.py's --limit.
-    ap = argparse.ArgumentParser(description="EvidenceEngine AI extractor (Gemini fast-path).")
+    ap = argparse.ArgumentParser(description="EvidenceEngine AI extractor.")
     ap.add_argument("--limit", type=int, default=0, help="pilot on the first N PDFs only (0 = all)")
+    ap.add_argument("--provider", default="gemini",
+                     help="'gemini' (default) uses the fast-path WITH context caching (~90% input saving). "
+                          "Any other value (e.g. 'anthropic', 'openai', 'ollama') routes through LiteLLM "
+                          "instead - provider choice, but no caching, so it costs more per PDF.")
+    ap.add_argument("--model", default="gemini-2.5-flash",
+                     help="model name; for --provider gemini a bare model id, for any other provider a "
+                          "LiteLLM model string (e.g. 'claude-opus-4-8', 'gpt-4o', 'ollama/llama3')")
     args, _unknown = ap.parse_known_args()
+    CHOSEN_PROVIDER = args.provider
+    CHOSEN_MODEL = args.model
 
     with open(BASE_DIR / 'promptfile.txt', 'r', encoding='utf-8') as f:
         research_prompt = f.read().strip()
     PROMPT_VERSION = _form_version(research_prompt)
+
+    # Review-level RoB framing (effect of interest / target trial / a-priori confounders) is the SAME for
+    # every PDF in this run, so it goes into the cached system instruction once here, not re-sent per call.
+    review_context = _review_context_block(BASE_DIR / 'criteria.txt')
+    if "[REVIEW_CONTEXT]" in research_prompt:
+        research_prompt = research_prompt.replace("[REVIEW_CONTEXT]", review_context)
+    print("Review context injected into the RoB/extraction prompt:\n" + review_context)
     if PROMPT_VERSION:
         print(f"Extraction form version: {PROMPT_VERSION}")
 
@@ -249,14 +372,19 @@ def main():
             config=types.CreateCachedContentConfig(
                 display_name="systematic_review_extraction",
                 system_instruction=research_prompt,
-                ttl="3600s" 
+                ttl="3600s"
             )
         )
         cache_id = cache.name
         print(f"Cache active: {cache_id}")
+    else:
+        print(f"Provider '{CHOSEN_PROVIDER}' routes through LiteLLM (model '{CHOSEN_MODEL}') - no context "
+              f"caching on this path, so the full system prompt is resent on every PDF.")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(process_file, pdf, CHOSEN_PROVIDER, CHOSEN_MODEL, cache_id): pdf for pdf in pdfs}
+        futures = {executor.submit(process_file, pdf, CHOSEN_PROVIDER, CHOSEN_MODEL, cache_id,
+                                    None if CHOSEN_PROVIDER == "gemini" else research_prompt): pdf
+                   for pdf in pdfs}
         for future in concurrent.futures.as_completed(futures):
             results.append(future.result())
 
@@ -298,8 +426,6 @@ def main():
             n_okf = 0
             used = {}                       # node-slug -> FileName, to catch silent overwrites
             for r in results:
-                if r.get('Status') != 'SUCCESS':
-                    continue
                 fname = str(r.get('FileName', ''))
                 match = _re.search(r'REC_\d{3,}', fname)
                 rid = match.group(0) if match else Path(fname).stem
@@ -311,6 +437,17 @@ def main():
                     slug = okf_writer.slugify(f"extraction-{rid}")
                     print(f"OKF: extraction-node collision; disambiguated '{fname}' -> {rid}")
                 used[slug] = fname
+                if r.get('Status') != 'SUCCESS':
+                    # A stub node so a failed study is still IN the bundle (never just absent) - a referee
+                    # or the compliance lint can see it failed and needs manual extraction, instead of the
+                    # study quietly having no extraction node at all with nothing to explain why.
+                    okf_writer.write_extraction_node(
+                        bundle, record_id=rid, provenance=prov,
+                        fields={"Extraction_Status": "FAILED - needs manual extraction",
+                                "Error": str(r.get('Error', '(no error message)'))},
+                        source_file=fname)
+                    n_okf += 1
+                    continue
                 # Exclude the parallel Source_Quotes · <field> loci: they live in the audit CSV's
                 # Audit_Notes (the human-facing check), not as their own extraction fields in the node.
                 fields = {k: v for k, v in r.items()

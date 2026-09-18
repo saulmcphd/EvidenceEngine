@@ -17,6 +17,9 @@ INCLUSION_CRITERIA:
 EXCLUSION_CRITERIA:
 
 ROB_TOOL: auto   # auto = RoB2 for RCTs, ROBINS-I for observational
+ROB_EFFECT_OF_INTEREST:   # assignment (ITT) or adherence (per-protocol) - fix this BEFORE scoring RoB2 Domain 2; assignment is the usual default
+ROB_TARGET_TRIAL:   # ROBINS-I only: the hypothetical pragmatic RCT the non-randomised studies are emulating
+ROB_CONFOUNDERS:   # ROBINS-I only: the a-priori confounder + co-intervention list, decided BEFORE reading the included studies
 DATE_RANGE: no limit
-LANGUAGE: 
-PUBLICATION_STATUS: 
+LANGUAGE:
+PUBLICATION_STATUS:

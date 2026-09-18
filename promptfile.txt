@@ -1,5 +1,5 @@
-<!-- FORM_VERSION: extraction-v4 -->
-<!-- FORM_VERSION_DATE: 2026-07-04 -->
+<!-- FORM_VERSION: extraction-v5 -->
+<!-- FORM_VERSION_DATE: 2026-09-18 -->
 <!-- This is the C43 piloted, VERSIONED data-collection form (Cochrane Handbook §5.4.3 Step 4 / MECIR C43).
      BUMP FORM_VERSION and FORM_VERSION_DATE every time you revise the form after a pilot run, so a referee can
      see exactly which piloted, revised version produced the data. prompter.py reads these two lines and stamps
@@ -10,6 +10,9 @@
 
 <Context>
 Act as a senior methodological reviewer. Your task is to perform high-precision data extraction for a systematic review that includes both Interventional (RCTs) and Observational (Exposure-based) study designs. Follow the proposed PRISMA-trAIce reporting extension (not yet endorsed) for transparency. You are a SECOND extractor: a human reconciles every value you produce against the source PDF, so extract only what the paper actually reports and never fill a gap with an assumption.
+
+This review's pre-specified framing (from criteria.txt / the protocol — apply it, do not read it off the included study):
+[REVIEW_CONTEXT]
 </Context>
 
 <Task>
@@ -23,9 +26,14 @@ Extract the following data points into a structured JSON format, organised into 
 - "Core_Condition": {
     "Type": [State "Intervention" if planned treatment, or "Exposure" if naturally occurring],
     "Description": [Detailed description of the treatment OR the exposure/phenomenon being studied],
-    "Dose_Intensity_or_Level": [Duration, frequency, or severity of the intervention/exposure]
+    "Dose_Intensity_or_Level": [Duration, frequency, or severity of the intervention/exposure],
+    "Who_Delivered": [TIDieR: who delivered/administered it, e.g. "a registered clinical psychologist", "self-administered"; 'Not reported' if absent],
+    "Mode_Of_Delivery": [TIDieR: how it was delivered, e.g. "individual face-to-face session", "group video call", "self-guided workbook"; 'Not reported' if absent],
+    "Location": [TIDieR: where it took place, e.g. "outpatient clinic", "participant's home"; 'Not reported' if absent],
+    "Fidelity": [TIDieR: any check that the intervention was delivered as intended (e.g. adherence checklist, supervision, treatment-integrity rating); 'Not reported' if absent]
   }
 - "Comparison_Details": [Details of the control group, placebo, or unexposed baseline group]
+- "Authors_Conclusions_Direction_Of_Effect": [The AUTHORS' OWN stated conclusion / direction of effect for the primary outcome(s), in their words or a close paraphrase, e.g. "the intervention significantly reduced symptoms relative to control" or "no significant between-group difference was found". This is what the paper's authors themselves concluded, NOT your own assessment of the results. 'Not reported' if the paper draws no explicit conclusion.]
 - "Funding_Source": [The study's funding source(s)/sponsor AS REPORTED, e.g. "NIHR grant ...", "industry (drug maker X)", "no external funding declared". Use "Not reported" if the paper carries no funding statement — do NOT infer. Cochrane flags funding source as "a particularly important piece of information".]
 - "Author_Conflicts_Of_Interest": [The authors' declared financial relationships / competing interests AS REPORTED, e.g. "authors declare no competing interests", "author X consults for company Y". Use "Not reported" if there is no COI/declaration statement.]
 - "Funder_Role": [The funder's/sponsor's stated ROLE in the study AS REPORTED — e.g. "funder had no role in design, analysis or reporting", "sponsor designed the trial and analysed the data", "sponsor employees were co-authors". Use "Not reported" if the paper does not state the funder's role. (Cochrane wants funding source, funder role, AND declarations — §7.8.)]
@@ -47,9 +55,14 @@ Extract the following data points into a structured JSON format, organised into 
       "Timing": "[element 5 - the time point of measurement, e.g. 'end of 8-week intervention' | '6-month follow-up']",
       "Primary_Or_Secondary": "['primary' | 'secondary' | 'Not stated' - as designated by the study/protocol]",
       "Data_Type": "[continuous | dichotomous | count/rate | time-to-event | ordinal]",
-      "Intervention_or_Exposed_Group": {"Mean": [val], "SD": [val], "N": [val], "Events": [val]},
-      "Control_or_Unexposed_Group": {"Mean": [val], "SD": [val], "N": [val], "Events": [val]},
+      "Log_Rank_O_Minus_E": "[time-to-event only: the log-rank 'observed minus expected' statistic per arm, AS REPORTED; else 'Not applicable']",
+      "Log_Rank_V": "[time-to-event only: the log-rank variance (V) statistic, AS REPORTED; else 'Not applicable']",
+      "Proportional_Hazards_Status": "[time-to-event only: 'stated proportional' | 'stated non-proportional' | 'not assessed/not reported'; else 'Not applicable']",
+      "Intervention_or_Exposed_Group": {"Mean": [val], "SD": [val], "N": [val], "Events": [val], "Person_Time": [val], "Time_Unit": [val]},
+      "Control_or_Unexposed_Group": {"Mean": [val], "SD": [val], "N": [val], "Events": [val], "Person_Time": [val], "Time_Unit": [val]},
+      "Unit_Of_Analysis_Flag": "['repeatable-event' if a participant could have the event more than once (a probable unit-of-analysis error if Events was coded as one row per participant rather than a rate) | 'single-event' | 'Not applicable' for a non-count outcome]",
       "Reported_Variability_Statistic": "[the spread statistic ACTUALLY printed, verbatim: 'SD' | 'SE' | '95% CI' | 'IQR' | 'range'. Do NOT silently convert it to an SD - record what the paper reported]",
+      "_Person_Time_note": "Person_Time/Time_Unit above are for a 'count/rate' Data_Type ONLY - the total person-time at risk in that arm (e.g. Person_Time='142.5', Time_Unit='person-years'), never events/patients alone (Cochrane: rate outcomes need events AND person-time). For any other Data_Type, set both to 'Not applicable'.",
       "Per_Arm_Precision_If_No_SD": "[if the arms report an SE / 95% CI / IQR INSTEAD of an SD, give it PER ARM verbatim (e.g. 'intervention 95% CI 10.2-14.0; control 9.1-12.3') so a human can recover the SD downstream; else 'Not reported']",
       "Effect_Estimate_Family": "[if a between-group effect is reported: 'ratio' (OR/RR/HR) | 'difference' (MD/SMD/risk difference); else 'Not applicable']",
       "Effect_Estimate_Name": "[e.g. 'OR' | 'RR' | 'HR' | 'MD' | 'SMD'; else 'Not reported']",
@@ -63,8 +76,8 @@ Extract the following data points into a structured JSON format, organised into 
       "Unit_Of_Analysis": "[what each result is measured on: 'participant' | 'cluster' | 'body part' | 'treatment period'. 'Not reported' if unclear]",
       "Analysis_N_Randomised": "[number randomised/allocated to this contrast; else 'Not reported']",
       "Analysis_N_Analysed": "[number actually INCLUDED in THIS result - may differ from the number randomised; else 'Not reported']",
-      "Value_Provenance": "['reported' if read verbatim from the paper | 'calculated' if you derived it]",
-      "Calculation_Note": "[if 'calculated', name the source statistic + how it was derived; else 'Not applicable']",
+      "Value_Provenance": "['reported' if EVERY number in this outcome entry was read verbatim from the paper | 'calculated' if ANY one of them (e.g. an SD recovered from a CI) was derived by you]",
+      "Calculation_Note": "[if Value_Provenance is 'calculated', name EXACTLY WHICH field(s) were derived and how, e.g. 'SD for the intervention arm calculated from the reported 95% CI'; the reported source value stays in its own field too, never overwritten; else 'Not applicable']",
       "Meta_Analysable_As_Reported": "['yes' if the outcome can be pooled AS REPORTED - per-arm n+mean+SD, OR per-arm n+mean+a reported SE/95% CI/IQR (SD recoverable), OR a between-group effect estimate WITH a precision statistic, OR individual-participant data; 'no' otherwise]",
       "Poolability_Reason": "[if 'no', say why - e.g. 'effect estimate reported with no measure of precision (no SE/CI/P/test statistic)', or 'only a P-value threshold (<0.05) given', so not meta-analysable as reported; else 'Not applicable']"
     }
@@ -80,13 +93,13 @@ Extract the following data points into a structured JSON format, organised into 
   }
 - "RoB_Tool": [Driven by Study_Design: "RoB2" for TRULY randomized trials only; "ROBINS-I" for observational AND for non-/quasi-/pseudo-randomized studies (e.g. allocation by alternation, date, or record number). Quasi-randomised is NOT a true RCT -> ROBINS-I.]
 - "RoB_Assessment": {
-    "_instruction": "Populate ONLY the domain block matching RoB_Tool. Set EVERY field of the other tool's block to 'Not applicable'. Format each judged field as '[Judgment]; [exact supporting quote]'.",
+    "_instruction": "Populate ONLY the domain block matching RoB_Tool. Set EVERY field of the other tool's block to 'Not applicable'. Format each judged field as '[Judgment]; [exact supporting quote]'. DOMAIN-SPECIFIC RULES (Cochrane Handbook Ch.8 — do not deviate): Domain 2 (deviations) branches on the review's effect of interest given above — for the ASSIGNMENT/ITT effect, judge experimental-context deviations from assignment; for the ADHERENCE/per-protocol effect, judge deviations from adherence/co-interventions instead; impossible blinding is NOT automatic High risk on its own. Domain 3 (missing outcome data) is judged on the missingness MECHANISM and whether reasons differ across arms — there is NO safe 5%/20% proportion threshold; do not rate 'Low' merely because missingness is under some percentage, and do not rate 'High' merely because it is over one. Domain 4 (measurement of the outcome) is judged on the outcome TYPE and who the assessor is (Table 8.6.a): a participant-reported outcome or a judgement-based observer-assessed outcome CANNOT be rated 'Low' — the floor is 'Some concerns' at minimum, because the assessor cannot be blinded; an objective outcome (e.g. all-cause mortality) is not held to that floor.",
     "RoB2_Randomization_Process": "[RCTs only; else 'Not applicable']",
     "RoB2_Deviations_From_Intended_Interventions": "[RCTs only; else 'Not applicable']",
     "RoB2_Missing_Outcome_Data": "[RCTs only; else 'Not applicable']",
     "RoB2_Measurement_Of_The_Outcome": "[RCTs only; else 'Not applicable']",
     "RoB2_Selection_Of_The_Reported_Result": "[RCTs only; else 'Not applicable']",
-    "ROBINSI_Confounding": "[Observational only; else 'Not applicable']",
+    "ROBINSI_Confounding": "[Observational only; judge against the a-priori confounder/co-intervention list given above, and the target trial it is emulating if named — do NOT reward mere 'adjustment': check the RIGHT confounders (from the list) were measured validly and analysed appropriately; residual/unmeasured confounding from that list usually precludes a 'Low' rating; else 'Not applicable']",
     "ROBINSI_Selection_Of_Participants_Into_Study": "[Observational only; else 'Not applicable']",
     "ROBINSI_Classification_Of_Interventions_Or_Exposures": "[Observational only; else 'Not applicable']",
     "ROBINSI_Deviations_From_Intended_Interventions": "[Observational only; else 'Not applicable']",
