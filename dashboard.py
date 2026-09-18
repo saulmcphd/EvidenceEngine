@@ -1,24 +1,24 @@
 """
-dashboard.py - EvidenceEngine browser dashboard (Phase 3)
-=========================================================
-A friendly web UI so a non-developer never touches the command line. Run with:
+dashboard.py - SUPERSEDED (Phase 3 Streamlit prototype - do not run)
+======================================================================
+*** THIS FILE IS RETIRED. The real EvidenceEngine app is the webapp/ Flask backend + React frontend, launched
+    via "Start EvidenceEngine.bat" -> webapp/serve.py (see CLAUDE.md / README.txt). ***
 
-    streamlit run dashboard.py
+Why this file still exists but must not be run: it was the original Streamlit prototype for the same 9-step
+pipeline, before the webapp/ product reached feature parity and replaced it. It reads and writes the SAME
+Outputs/ and okf-bundle/ folders as the live webapp (see EE/BUNDLE below) with none of the webapp's later
+safety work (multi-review manager, RAISE provenance gates, reconciliation guardrails, etc.) - running it
+against a real review's data risks corrupting or bypassing all of that. It is kept only for reference; do not
+extend it, and do not launch it against real data. (Flagged as a genuine confusion risk by the 2026-09 codebase
+review - a future session opening this file by name alone could easily mistake it for the current app.)
 
-It WRAPS the tested scripts (master_records.py, the screeners, reliability.py, okf_tools/okf_writer)
-- it does not re-implement them. Pages (sidebar):
-  1. Setup            - project + PICO, edit criteria.txt, pick the AI provider/model, save the API key
-  2. Search & Upload  - upload your database export(s) -> dedupe -> ONE-CLICK labelled downloads (RIS/CSV/orders)
-  3. AI screening     - run the AI second screener over your records (needs an API key)
-  4. Blind screening  - the instrumented BLIND human screen (per-decision timestamps + per-screener order) for the fatigue study
-  5. Reliability      - recall + F-beta + kappa cards from a blind-human-vs-AI comparison (DEMO-labelled until real)
-  6. Fatigue          - does screening error rise with time-on-task? (leave-one-screener-out mixed model + plotly chart)
-  7. Report / Export  - methods .docx (with the RAISE disclosure) + BibTeX + bundle .zip
-  8. OKF brain        - the interactive knowledge graph + download the bundle as a .zip
-
-Honesty (RAISE / PRISMA-trAIce): until a REAL validation run exists, every metric is watermarked DEMO. The
-human screening arm normally happens in the researcher's own tool (Mendeley/Zotero/Rayyan) -> export a RIS and
-upload it here; the in-dashboard instrumented screener is only needed for the fatigue study.
+Original docstring, for reference only (this description of "the dashboard" now describes webapp/, not this file):
+A friendly web UI so a non-developer never touches the command line. It WRAPS the tested scripts
+(master_records.py, the screeners, reliability.py, okf_tools/okf_writer) - it does not re-implement them.
+Pages (sidebar): 1. Setup - project + PICO, criteria.txt, provider/model, API key. 2. Search & Upload - dedupe
+-> RIS/CSV/orders downloads. 3. AI screening. 4. Blind screening (instrumented, for the fatigue study).
+5. Reliability - recall/F-beta/kappa. 6. Fatigue - mixed model + chart. 7. Report/Export - methods .docx +
+BibTeX + bundle .zip. 8. OKF brain - the knowledge graph.
 """
 
 import csv
@@ -34,6 +34,18 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+
+st.set_page_config(page_title="EvidenceEngine (retired prototype)", page_icon="⚠️")
+st.error(
+    "**This Streamlit page is retired and must not be used.**\n\n"
+    "EvidenceEngine's real app is now the web app - double-click **Start EvidenceEngine.bat** in the "
+    "SystematicReview folder (it opens http://localhost:5180 in your browser). This page is an old "
+    "prototype that reads/writes the same data folders but has none of the current app's safety checks; "
+    "using it on a real review risks corrupting your data.\n\n"
+    "If you're a developer who genuinely needs to read this file's old logic for reference, open it in an "
+    "editor - do not run it with `streamlit run`."
+)
+st.stop()
 
 EE = Path(__file__).resolve().parent          # EvidenceEngine/
 ROOT = EE.parent                              # repo root
