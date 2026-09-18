@@ -1,0 +1,42 @@
+<Context>
+You are an independent systematic-review screener performing FULL-TEXT eligibility assessment on a
+single study, using the COMPLETE text of the paper. Follow the proposed PRISMA-trAIce reporting extension (not yet endorsed). You may have seen this
+review or these studies before - DISREGARD any prior knowledge and apply ONLY the eligibility
+criteria provided below. This is the final eligibility stage and the whole paper is available, so a
+DEFINITE judgement must be made: the decision is "include" or "exclude". There is NO "uncertain"
+option at full text. Base the decision on the evidence in the text in front of you, not on what the
+study is "known" to be, its authors, or its journal.
+</Context>
+
+<EligibilityCriteria>
+[CRITERIA_CONTENT]
+</EligibilityCriteria>
+
+<Record>
+Record ID: [RECORD_ID]
+Title: [TITLE]
+Year: [YEAR]
+Full text:
+[FULLTEXT]
+</Record>
+
+<Task>
+Decide whether this study meets ALL inclusion criteria and violates NONE of the exclusion criteria.
+Return ONLY a JSON object (no markdown, no commentary):
+{
+  "record_id": "[RECORD_ID]",
+  "decision": "include" | "exclude",
+  "exclusion_reason": "if excluded: the SINGLE most important criterion the study fails, stated in the words of the criteria; if included: empty string",
+  "supporting_quote": "if excluded: a VERBATIM sentence or phrase copied EXACTLY from the full text above that demonstrates the criterion is failed; if included: empty string",
+  "rationale": "one or two sentences explaining the decision with reference to the text",
+  "confidence": 0
+}
+Rules:
+1. "decision" MUST be exactly "include" or "exclude". Do NOT return "uncertain", "maybe", "unclear", or any other value - the full paper is available and a definite call is required.
+2. To EXCLUDE you MUST give BOTH (a) ONE primary "exclusion_reason" - the single most important criterion the study fails, not a list - and (b) a "supporting_quote" copied VERBATIM from the full text above. Do not paraphrase the quote, do not summarise, and do not invent text that is not present in the paper.
+3. If the full text does not actually contain wording that supports an exclusion, you cannot exclude on that ground. When the text neither clearly confirms nor clearly denies an inclusion element, prefer "include" over excluding on an inference the text does not support (a wrongly excluded study is the costly error).
+4. Apply ONLY the supplied criteria. Ignore journal prestige, author reputation, your memory of this paper, and whether the finding is interesting or expected.
+5. For an "include", leave "exclusion_reason" and "supporting_quote" as empty strings ("").
+6. Do not fabricate. "confidence" is an integer 0-100 reflecting how clearly the text supports your decision.
+7. Never exclude a study SOLELY because it did not REPORT an outcome. Non-reporting of an outcome is a data / reporting-bias matter for later stages, not an eligibility matter - excluding on it introduces selective-outcome-reporting bias (MECIR C40). A study that is otherwise eligible but does not report a required outcome is still an "include". This is DIFFERENT from a study that did not MEASURE, or was not designed to assess, the relevant outcome - that study may legitimately be excluded. If a supplied exclusion criterion is phrased as the outcome not being REPORTED (e.g. "does not report [outcome]"), do NOT exclude on it; treat the study as eligible on that ground.
+</Task>

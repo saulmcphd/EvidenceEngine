@@ -1,0 +1,22 @@
+# EvidenceEngine shared topic config.
+# Read VERBATIM by the AI screener (screener_abstract.py / screener_fulltext.py) and by the human reviewer.
+# Assembled from the Setup form (edit the structured boxes there, or toggle raw edit).
+
+REVIEW_TOPIC: 
+FRAMEWORK: 
+
+PICO_P: 
+PICO_I/E: 
+PICO_C: 
+PICO_O: 
+
+STUDY_DESIGN_FEATURES: 
+
+INCLUSION_CRITERIA:
+
+EXCLUSION_CRITERIA:
+
+ROB_TOOL: auto   # auto = RoB2 for RCTs, ROBINS-I for observational
+DATE_RANGE: no limit
+LANGUAGE: 
+PUBLICATION_STATUS: 

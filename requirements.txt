@@ -1,0 +1,34 @@
+# --- Existing: extraction (prompter.py) ---
+pandas>=2.0
+pdfplumber>=0.10
+python-dotenv>=1.0
+openpyxl>=3.1
+
+# --- Provider SDKs (extraction Gemini fast-path + optional direct calls) ---
+google-generativeai>=0.8        # Gemini extraction + context caching (keep: ~90% input saving)
+anthropic>=0.40                 # optional direct Claude
+openai>=1.40                    # optional direct GPT
+
+# --- Provider-agnostic routing for screening & reliability ---
+litellm>=1.50                   # one API across Claude / GPT / Gemini / Ollama
+
+# --- Screening + master records (RIS round trip) ---
+rispy>=0.9                      # read/write RIS, preserve REC_NNNN in ID/C1
+
+# --- Reliability + fatigue study ---
+scipy>=1.14                     # cohen_kappa_score
+scikit-learn>=1.4               # fbeta_score, precision/recall, roc_auc
+statsmodels>=0.14               # mixed-effects fatigue model (error ~ time + position + (1|screener))
+
+# --- Dashboard (legacy / reference) ---
+streamlit>=1.30
+plotly>=5.20                    # fatigue chart, metric figures
+python-docx>=1.1                # methods .docx export (Report / Export page)
+Pillow>=10.0                    # PRISMA flow diagram raster export (PNG/JPEG); prisma_render.py draws it directly
+
+# --- Local web app (webapp/) — the Rayyan-style human+AI pipeline UI ---
+fastapi>=0.110                  # local API wrapping the tested engine (no hosting; runs on the user's machine)
+uvicorn>=0.27                   # the local server; `python webapp/run.py`
+# Node.js is needed ONLY to build the front-end (developer step); end users run with Python alone.
+
+# Pin exact versions in a lockfile before the published release (FAIR4RS reproducibility).

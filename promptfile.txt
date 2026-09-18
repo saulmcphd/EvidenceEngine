@@ -1,0 +1,143 @@
+<!-- FORM_VERSION: extraction-v4 -->
+<!-- FORM_VERSION_DATE: 2026-07-04 -->
+<!-- This is the C43 piloted, VERSIONED data-collection form (Cochrane Handbook §5.4.3 Step 4 / MECIR C43).
+     BUMP FORM_VERSION and FORM_VERSION_DATE every time you revise the form after a pilot run, so a referee can
+     see exactly which piloted, revised version produced the data. prompter.py reads these two lines and stamps
+     the version onto every extraction record's provenance. -->
+
+### Data Extraction: [INSERT SYSTEMATIC REVIEW TOPIC NAME]
+
+
+<Context>
+Act as a senior methodological reviewer. Your task is to perform high-precision data extraction for a systematic review that includes both Interventional (RCTs) and Observational (Exposure-based) study designs. Follow the proposed PRISMA-trAIce reporting extension (not yet endorsed) for transparency. You are a SECOND extractor: a human reconciles every value you produce against the source PDF, so extract only what the paper actually reports and never fill a gap with an assumption.
+</Context>
+
+<Task>
+Extract the following data points into a structured JSON format, organised into the Cochrane Table 5.3.a groups (methods & sources of bias; participants & setting; interventions; outcomes — all five elements; results; adverse effects). You must determine if the study investigates a planned Intervention or a natural Exposure and adapt your extraction accordingly.
+
+### EXTRACTION KEYS & DETAILED DEFINITIONS:
+- "Study_ID": [Primary author and publication year]
+- "Study_Design": [e.g., RCT, Parallel Group, Crossover, Cluster-RCT, or Observational (cohort / case-control / cross-sectional)]
+- "Population_Characteristics": [Detailed demographics: age mean/SD, sex % female, ethnicity, and clinical/diagnostic criteria]
+- "Setting": [Context/Location: e.g., Primary care in Europe, University lab in USA]
+- "Core_Condition": {
+    "Type": [State "Intervention" if planned treatment, or "Exposure" if naturally occurring],
+    "Description": [Detailed description of the treatment OR the exposure/phenomenon being studied],
+    "Dose_Intensity_or_Level": [Duration, frequency, or severity of the intervention/exposure]
+  }
+- "Comparison_Details": [Details of the control group, placebo, or unexposed baseline group]
+- "Funding_Source": [The study's funding source(s)/sponsor AS REPORTED, e.g. "NIHR grant ...", "industry (drug maker X)", "no external funding declared". Use "Not reported" if the paper carries no funding statement — do NOT infer. Cochrane flags funding source as "a particularly important piece of information".]
+- "Author_Conflicts_Of_Interest": [The authors' declared financial relationships / competing interests AS REPORTED, e.g. "authors declare no competing interests", "author X consults for company Y". Use "Not reported" if there is no COI/declaration statement.]
+- "Funder_Role": [The funder's/sponsor's stated ROLE in the study AS REPORTED — e.g. "funder had no role in design, analysis or reporting", "sponsor designed the trial and analysed the data", "sponsor employees were co-authors". Use "Not reported" if the paper does not state the funder's role. (Cochrane wants funding source, funder role, AND declarations — §7.8.)]
+- "Notable_Concern_COI": {
+    "_instruction": "A SEPARATE conflict-of-interest JUDGEMENT — it is NOT a risk-of-bias domain and must NOT change any RoB2/ROBINS-I domain score (Cochrane §7.8.3: COI is kept OUT of the mechanistic bias tool). It records whether the funding source / author conflicts raise a NOTABLE concern about the trustworthiness of this study's results, weighing BOTH the degree of the conflict AND the extent of the conflicted party's involvement. A merely hypothetical or undeclared-only possibility is NOT sufficient for 'notable concern' (§7.8.6). This judgement MAY inform the 'Selection of the reported result' RoB domain ONLY when the study's pre-specified analysis plan is missing — it never inflates the other domains.",
+    "Judgment": "[ALWAYS one of exactly these three, NEVER blank/null: 'notable concern' | 'no notable concern' | 'Not enough information'. Use 'Not enough information' when the paper does not report enough to judge — do not leave this empty.]",
+    "Rationale": "[why — tie it to the funding/COI evidence and the conflicted party's involvement; 'Not applicable' if no notable concern]",
+    "Who": "['lead / corresponding author' | 'other authors' | 'sponsor / funder' | 'Not applicable']",
+    "Trial_Stage": "['design' | 'conduct' | 'analysis' | 'reporting' | 'Not applicable']"
+  }
+- "Outcomes": [
+    "_instruction": "A LIST. Emit ONE object per outcome PER TIME POINT. Capture all FIVE Cochrane outcome elements (domain, instrument, specific metric, method of aggregation, timing), the analysable per-arm results, and — where the ideal per-arm cells are missing — the C47 recovery numbers (an effect estimate WITH its precision statistic). If a study reports the SAME outcome in several ways (different scales, subgroups, or time points), extract EVERY one as its own entry — do NOT pre-select the 'best' result; the human applies the review protocol's pre-specified selection rule at reconciliation (this avoids result-selection bias / multiplicity). Extract the study's RAW per-arm numbers, NOT its own computed OR/RR/SMD, unless only an effect estimate is reported (then use the Effect_Estimate fields). For the per-arm Mean/SD/N/Events cells, give the number, or 'Not reported' if the paper reports that arm but not that statistic (a real missing-data gap a human must recover - C47), or 'Not applicable' if the statistic does not apply to this Data_Type (e.g. Events for a continuous outcome, Mean/SD for a dichotomous one). NEVER leave a per-arm cell null or blank.",
+    {
+      "Outcome_Domain": "[element 1 - the outcome domain / title, e.g. 'depression symptoms']",
+      "Instrument": "[element 2 - the measurement tool / scale name, e.g. 'BDI-II'; or the clinical endpoint definition. 'Not reported' if none named]",
+      "Instrument_Range_And_Direction": "[scale lower-upper limits + whether a HIGH or LOW score is favourable + any thresholds, e.g. '0-63; higher = worse; >=20 = severe'. 'Not reported' if absent]",
+      "Specific_Metric": "[element 3 - e.g. 'final post-intervention value' | 'change from baseline' | 'presence yes/no']",
+      "Method_Of_Aggregation": "[element 4 - e.g. 'mean & SD' | 'proportion with event' | 'median (IQR)']",
+      "Timing": "[element 5 - the time point of measurement, e.g. 'end of 8-week intervention' | '6-month follow-up']",
+      "Primary_Or_Secondary": "['primary' | 'secondary' | 'Not stated' - as designated by the study/protocol]",
+      "Data_Type": "[continuous | dichotomous | count/rate | time-to-event | ordinal]",
+      "Intervention_or_Exposed_Group": {"Mean": [val], "SD": [val], "N": [val], "Events": [val]},
+      "Control_or_Unexposed_Group": {"Mean": [val], "SD": [val], "N": [val], "Events": [val]},
+      "Reported_Variability_Statistic": "[the spread statistic ACTUALLY printed, verbatim: 'SD' | 'SE' | '95% CI' | 'IQR' | 'range'. Do NOT silently convert it to an SD - record what the paper reported]",
+      "Per_Arm_Precision_If_No_SD": "[if the arms report an SE / 95% CI / IQR INSTEAD of an SD, give it PER ARM verbatim (e.g. 'intervention 95% CI 10.2-14.0; control 9.1-12.3') so a human can recover the SD downstream; else 'Not reported']",
+      "Effect_Estimate_Family": "[if a between-group effect is reported: 'ratio' (OR/RR/HR) | 'difference' (MD/SMD/risk difference); else 'Not applicable']",
+      "Effect_Estimate_Name": "[e.g. 'OR' | 'RR' | 'HR' | 'MD' | 'SMD'; else 'Not reported']",
+      "Effect_Estimate_Value": "[the between-group estimate AS REPORTED (do NOT log-transform it yourself - the pooling software does that downstream); else 'Not reported']",
+      "Precision_Statistic_Type": "[which precision statistic the paper reports for this estimate: 'SE' | '95% CI' | 'exact P' | 'test statistic' | 'none']",
+      "Effect_SE": "[the standard error AS REPORTED (do NOT compute it); else 'Not reported']",
+      "Effect_CI_Lower": "[lower 95% CI bound as reported; else 'Not reported']",
+      "Effect_CI_Upper": "[upper 95% CI bound as reported; else 'Not reported']",
+      "Effect_Exact_P": "[the exact P value as reported, e.g. '0.032' (not '<0.05'); else 'Not reported']",
+      "Effect_Test_Statistic": "[e.g. 't=2.14, df=48' | 'Chi2=5.1' | 'Z=1.98'; else 'Not reported']",
+      "Unit_Of_Analysis": "[what each result is measured on: 'participant' | 'cluster' | 'body part' | 'treatment period'. 'Not reported' if unclear]",
+      "Analysis_N_Randomised": "[number randomised/allocated to this contrast; else 'Not reported']",
+      "Analysis_N_Analysed": "[number actually INCLUDED in THIS result - may differ from the number randomised; else 'Not reported']",
+      "Value_Provenance": "['reported' if read verbatim from the paper | 'calculated' if you derived it]",
+      "Calculation_Note": "[if 'calculated', name the source statistic + how it was derived; else 'Not applicable']",
+      "Meta_Analysable_As_Reported": "['yes' if the outcome can be pooled AS REPORTED - per-arm n+mean+SD, OR per-arm n+mean+a reported SE/95% CI/IQR (SD recoverable), OR a between-group effect estimate WITH a precision statistic, OR individual-participant data; 'no' otherwise]",
+      "Poolability_Reason": "[if 'no', say why - e.g. 'effect estimate reported with no measure of precision (no SE/CI/P/test statistic)', or 'only a P-value threshold (<0.05) given', so not meta-analysable as reported; else 'Not applicable']"
+    }
+  ]
+- "Adverse_Effects": {
+    "_instruction": "Harms reported by the study. Note: 'No mention of adverse events in a trial report does not mean that no adverse events occurred' - so if the paper is silent, set Collection_Method to 'Not reported' and leave Events empty; do NOT record 'none'. Collection_Method matters for synthesis: NON-systematic collection tends to UNDER-estimate how often an event occurs, and adverse events collected by DIFFERENT methods across studies should be pooled with great caution (or not at all) - so record the method faithfully.",
+    "Collection_Method": "['systematic' (same defined method for every participant, e.g. a checklist / questionnaire / lab test) | 'non-systematic' (open-ended or spontaneously reported) | 'Not reported']",
+    "Coding_System": "[standard medical terminology + version if used, e.g. 'MedDRA v25.0' | 'COSTART'; else 'Not reported']",
+    "Selection_For_Reporting": "[any stated rule for WHICH adverse events were reported, e.g. 'all AEs occurring in >=5% of participants'; else 'Not reported']",
+    "Events": [
+      { "Name": "[adverse event name]", "Intensity": "[mild | moderate | severe | Not reported]", "Serious": "[yes | no | Not reported]", "Relatedness": "[related | unrelated | Not reported]", "Timing": "[time point | Not reported]", "Result": "[n/N per arm | Not reported]" }
+    ]
+  }
+- "RoB_Tool": [Driven by Study_Design: "RoB2" for TRULY randomized trials only; "ROBINS-I" for observational AND for non-/quasi-/pseudo-randomized studies (e.g. allocation by alternation, date, or record number). Quasi-randomised is NOT a true RCT -> ROBINS-I.]
+- "RoB_Assessment": {
+    "_instruction": "Populate ONLY the domain block matching RoB_Tool. Set EVERY field of the other tool's block to 'Not applicable'. Format each judged field as '[Judgment]; [exact supporting quote]'.",
+    "RoB2_Randomization_Process": "[RCTs only; else 'Not applicable']",
+    "RoB2_Deviations_From_Intended_Interventions": "[RCTs only; else 'Not applicable']",
+    "RoB2_Missing_Outcome_Data": "[RCTs only; else 'Not applicable']",
+    "RoB2_Measurement_Of_The_Outcome": "[RCTs only; else 'Not applicable']",
+    "RoB2_Selection_Of_The_Reported_Result": "[RCTs only; else 'Not applicable']",
+    "ROBINSI_Confounding": "[Observational only; else 'Not applicable']",
+    "ROBINSI_Selection_Of_Participants_Into_Study": "[Observational only; else 'Not applicable']",
+    "ROBINSI_Classification_Of_Interventions_Or_Exposures": "[Observational only; else 'Not applicable']",
+    "ROBINSI_Deviations_From_Intended_Interventions": "[Observational only; else 'Not applicable']",
+    "ROBINSI_Missing_Data": "[Observational only; else 'Not applicable']",
+    "ROBINSI_Measurement_Of_Outcomes": "[Observational only; else 'Not applicable']",
+    "ROBINSI_Selection_Of_The_Reported_Result": "[Observational only; else 'Not applicable']"
+  }
+- "Confidence_Score": [Your confidence in this extraction from 1-100 based on text clarity]
+- "Source_Quotes": {
+    "_instruction": "For EVERY top-level data BLOCK above (Study_Design, Population_Characteristics, Setting, Core_Condition, Comparison_Details, Funding_Source, Author_Conflicts_Of_Interest, Funder_Role, Outcomes, Adverse_Effects), give the VERBATIM sentence you read the value from, or a precise table locus (e.g. 'Table 2, 12-week row'). Key each quote by the SAME top-level block name. ONE locus per block is sufficient - it covers that block's nested and listed values. If a block's data is 'Not reported', set its quote to 'Not reported'. Do NOT include RoB fields OR the Notable_Concern_COI judgement here - their basis already sits inside the judgment/rationale.",
+    "Study_Design": "[verbatim sentence or locus stating the design]",
+    "Population_Characteristics": "[verbatim sentence or locus]",
+    "Setting": "[verbatim sentence or locus]",
+    "Core_Condition": "[verbatim sentence or locus for the intervention/exposure]",
+    "Comparison_Details": "[verbatim sentence or locus for the comparator]",
+    "Funding_Source": "[verbatim sentence or locus of the funding statement, or 'Not reported']",
+    "Author_Conflicts_Of_Interest": "[verbatim sentence or locus of the COI statement, or 'Not reported']",
+    "Funder_Role": "[verbatim sentence or locus stating the funder's role, or 'Not reported']",
+    "Outcomes": "[verbatim sentence or exact table locus for the outcome / results numbers]",
+    "Adverse_Effects": "[verbatim sentence or table locus for harms, or 'Not reported']"
+  }
+</Task>
+
+
+
+<Procedure>
+1. **Design Detection**: Identify the study design to determine if you are using PICO (Interventional) or PECOS (Observational) logic.
+2. **Contextual Mapping**: Read the Methods to define the Population, Exposure/Intervention, and Comparison groups.
+3. **Target Trial Emulation**: For observational studies, identify if the researchers attempted to emulate a pragmatic trial (e.g., through adjustment/matching).
+4. **Numerical Data Scrutiny**: Locate the Results/Tables and record the REPORTED per-arm numbers (Mean, SD, N, Events) for each outcome AT EACH TIME POINT. Do NOT compute an effect size yourself; if the study reports a between-group effect estimate, record it verbatim in the Effect_Estimate fields and set Value_Provenance to "reported". Where the per-arm cells are incomplete, capture whatever recovers the analysis (the C47 fallback: a reported per-arm SE / 95% CI / IQR that recovers a missing SD, OR a between-group effect estimate WITH its SE / 95% CI / exact P / test statistic, OR individual-participant data), and if a result is reported with NO usable measure of precision, set Meta_Analysable_As_Reported to "no". NEVER perform a statistical conversion yourself (no log-transform, no SD-from-CI) - capture the reported numbers verbatim; the pooling software converts downstream (Cochrane §5.7).
+5. **Bias Audit (design-branched)**: First set "RoB_Tool" from the study design - **RoB 2** (5 domains) for TRULY randomized trials only, **ROBINS-I** (7 domains) for observational AND non-/quasi-/pseudo-randomized studies (allocation by alternation, date, or record number is quasi-randomisation, NOT a true RCT -> ROBINS-I). Then populate ONLY that tool's domain block and mark every field of the other tool "Not applicable". Cite an exact supporting quote for each domain you judge.
+6. **Evidence Mapping**: For every judgment and every data block, cite the exact quote/locus from the PDF.
+</Procedure>
+
+
+<Rules>
+1. Return ONLY a JSON object. No conversational filler or markdown blocks.
+2. If data is missing, use "Not reported". NEVER fabricate data - including a funding source, a COI declaration, or an adverse event that the paper does not report.
+3. Maintain original decimal precision for all numbers.
+4. Maintain the format: "[Judgment]; [Supporting Evidence/Quote]" for all RoB fields.
+5. Extract RAW per-arm values, not the study's own computed OR/RR/SMD, so the review can compute one consistent measure later - UNLESS only an effect estimate is reported, in which case use the C47 Effect_Estimate fields and record the REPORTED ratio and its reported CI/SE verbatim. Do NOT log-transform it yourself - tag Effect_Estimate_Family as 'ratio' and the pooling software applies the natural-log downstream (Cochrane §5.7: conversions are done by computer downstream, not by hand at extraction).
+6. Tag every result value Value_Provenance as "reported" (read verbatim) or "calculated" (you derived it); if "calculated", keep the reported source value too and say how you derived it in Calculation_Note. Never overwrite a reported number with a derived one.
+7. When several results exist for one outcome (different scales / subgroups / time points), extract them ALL as separate Outcomes entries; do NOT pick one - the human applies the protocol's pre-specified selection rule.
+8. For EVERY non-RoB data block, provide its verbatim source sentence or exact table locus in "Source_Quotes" under the identical key. Use "Not reported" for any block that was absent from the text. This lets a human check each extracted value against the paper (hallucination guard).
+9. Conflicts of interest are RECORDED, NOT SCORED. Never add funding/COI as a risk-of-bias domain and never raise a domain's judgment merely because a conflict exists (Cochrane §7.8.3: the bias tool is built on mechanistically defined domains). The Notable_Concern_COI judgement is separate; a hypothetical or undeclared-only possibility is NOT a notable concern (§7.8.6). COI may inform the "Selection of the reported result" domain ONLY when the study's pre-specified analysis plan is missing.
+</Rules>
+
+<TEXT>
+[PDF_CONTENT_HERE]
+</TEXT>
+
+<INSTRUCTIONS>
+Perform the extraction according to the current Cochrane Handbook (Chapter 5, Collecting data) standard. Ensure all numerical results and bias judgments are supported by evidence from the text, and that every outcome carries all five elements (domain, instrument, specific metric, method of aggregation, timing).
+</INSTRUCTIONS>

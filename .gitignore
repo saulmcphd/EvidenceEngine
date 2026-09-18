@@ -1,0 +1,10 @@
+# Security: Do not upload API keys
+.env
+
+# Data Privacy: Do not upload study results or raw PDFs
+Outputs/
+PDFs/
+
+# Python temporary files
+__pycache__/
+*.py[cod]
