@@ -593,9 +593,26 @@ def _col(df, *names):
     return None
 
 
-def load_screening_join(human_csv, ai_csv, stage=None):
+def abstract_length_bucket(text) -> str:
+    """Bin an abstract's word count into the third stratification dimension playbook-reliability.md and
+    PLAN.md both call for (alongside study design and source database) — a strong AVERAGE recall can hide
+    the AI doing worse on short/terse abstracts specifically. '' (not '(not recorded)') for missing text, so
+    the caller can render it as its own visible '(not recorded)' stratum, same as the other two dimensions."""
+    n = len(str(text or "").split())
+    if n == 0:
+        return ""
+    if n < 100:
+        return "short (<100 words)"
+    if n <= 250:
+        return "medium (100-250 words)"
+    return "long (>250 words)"
+
+
+def load_screening_join(human_csv, ai_csv, stage=None, master_csv=None):
     """Join BLIND human decisions to AI decisions on record_id. Returns (human, ai, scores, merged).
-    Missing AI confidence is kept as NaN (NOT imputed) so AUC/WSS drop it rather than rank on a constant."""
+    Missing AI confidence is kept as NaN (NOT imputed) so AUC/WSS drop it rather than rank on a constant.
+    `master_csv` (optional) is master_records.csv — when given, an 'abstract_length' column is added to
+    `merged` (bucketed via abstract_length_bucket) even if it isn't already a column on the human file."""
     H = pd.read_csv(human_csv).fillna("")
     A = pd.read_csv(ai_csv).fillna("")
     h_id, a_id = _col(H, "record_id"), _col(A, "record_id")
@@ -604,7 +621,19 @@ def load_screening_join(human_csv, ai_csv, stage=None):
     if not (h_id and a_id and h_dec and a_dec):
         raise ValueError("need record_id + a human decision column + an AI decision column")
     a_score = _col(A, "ai_confidence", "confidence")
-    extra = [c for c in (_col(H, "study_design"), _col(H, "source_db")) if c]
+    extra = [c for c in (_col(H, "study_design"), _col(H, "source_db"), _col(H, "abstract_length")) if c]
+    if master_csv is not None and not _col(H, "abstract_length"):
+        try:
+            M = pd.read_csv(master_csv).fillna("")
+            m_id, m_ab = _col(M, "record_id"), _col(M, "abstract")
+            if m_id and m_ab:
+                lengths = M[[m_id, m_ab]].copy()
+                lengths["abstract_length"] = lengths[m_ab].map(abstract_length_bucket)
+                H = H.merge(lengths[[m_id, "abstract_length"]], left_on=h_id, right_on=m_id, how="left")
+                if "abstract_length" not in extra:
+                    extra.append("abstract_length")
+        except Exception:
+            pass   # stratification is a diagnostic extra — never let it block the headline metrics
     merged = H[[h_id, h_dec] + extra].merge(
         A[[a_id, a_dec] + ([a_score] if a_score else [])], left_on=h_id, right_on=a_id, how="inner")
     if merged.empty:
@@ -658,15 +687,19 @@ def _write_reliability_okf_node(ai_csv, stage, metrics, metrics_path) -> None:
 
 def run_screening(human_csv, ai_csv, outdir="Outputs/reliability", stage=None,
                   recall_threshold=None, stratify=None, beta=3.0, beta_rationale=None,
-                  threshold_independent=False) -> dict:
-    human, ai, scores, merged = load_screening_join(human_csv, ai_csv, stage)
+                  threshold_independent=False, master_csv=None) -> dict:
+    human, ai, scores, merged = load_screening_join(human_csv, ai_csv, stage, master_csv=master_csv)
     metrics = screening_metrics(human, ai, scores=scores, recall_threshold=recall_threshold,
                                 beta=beta, beta_rationale=beta_rationale,
                                 threshold_independent=threshold_independent)
     if stratify:
         col = _col(merged, stratify)
+        # Same beta/threshold_independent as the headline, or a per-stratum table can silently DISAGREE with
+        # it (e.g. report F-beta(2) overall but F-beta(3) in every subgroup) purely because these overrides
+        # weren't threaded through — not because the subgroups actually differ.
         metrics["stratified_by_" + stratify] = (
-            stratified_metrics(human, ai, merged[col].tolist(), scores=scores, recall_threshold=recall_threshold)
+            stratified_metrics(human, ai, merged[col].tolist(), scores=scores, recall_threshold=recall_threshold,
+                               beta=beta, beta_rationale=beta_rationale, threshold_independent=threshold_independent)
             if col else f"column '{stratify}' not found")
     out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
     (out / f"screening-metrics{('-' + stage) if stage else ''}.md").write_text(
@@ -838,6 +871,8 @@ def main() -> int:
     s.add_argument("--stage", default=None); s.add_argument("--outdir", default="Outputs/reliability")
     s.add_argument("--recall", type=float, default=None); s.add_argument("--stratify", default=None)
     s.add_argument("--beta", type=float, default=3.0); s.add_argument("--beta-rationale", dest="beta_rationale", default=None)
+    s.add_argument("--master", default=None,
+                    help="master_records.csv — pass this to make 'abstract_length' available as a --stratify value")
     f = sub.add_parser("fatigue"); f.add_argument("--human", required=True); f.add_argument("--outdir", default="Outputs/reliability")
     e = sub.add_parser("extraction"); e.add_argument("--audit", required=True); e.add_argument("--outdir", default="Outputs/reliability")
     sub.add_parser("selftest")
@@ -847,7 +882,8 @@ def main() -> int:
         return _selftest()
     if args.cmd == "screening":
         run_screening(args.human, args.ai, outdir=args.outdir, stage=args.stage, recall_threshold=args.recall,
-                      stratify=args.stratify, beta=args.beta, beta_rationale=args.beta_rationale); return 0
+                      stratify=args.stratify, beta=args.beta, beta_rationale=args.beta_rationale,
+                      master_csv=args.master); return 0
     if args.cmd == "fatigue":
         res = fatigue_model(_fatigue_frame(args.human))
         out = Path(args.outdir); out.mkdir(parents=True, exist_ok=True)

@@ -13,6 +13,7 @@ const pct = (v, d = 0) => bad(v) ? '—' : (Number(v) * 100).toFixed(d) + '%'
 const DOWNLOADS = [
   ['methods.docx', 'Methods (Word)', 'Paste into your paper’s Methods — includes the RAISE AI-use disclosure + a PRISMA-counts table.'],
   ['methods.md', 'Methods (Markdown fallback)', 'Only present if Word export was unavailable on this machine.'],
+  ['synthesis.md', 'Synthesis narrative (Markdown)', 'The evidence table + your reconciled synthesis sections — paste into your Results/Discussion. Generate it on the Synthesis screen first.'],
   ['references.bib', 'References (BibTeX)', 'Import into your reference manager / LaTeX. One entry per master record.'],
   ['prisma-flow.png', 'PRISMA flow (PNG)', 'Publication-styled PRISMA-trAIce diagram — high-resolution image.'],
   ['prisma-flow.jpg', 'PRISMA flow (JPEG)', 'The same diagram as a JPEG, for documents that prefer it.'],

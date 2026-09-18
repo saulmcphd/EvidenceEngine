@@ -2749,14 +2749,18 @@ def _ft_grading_human_csv(outdir: Path):
 
 
 def _record_strata() -> dict:
-    """{record_id: {'study_design':<str>, 'source_db':<str>}} for stratified recall. source_db is read from
-    master_records.csv; study_design from the latest extraction/RoB audit (the reconciled Consensus_Value wins
-    over the raw AI value). Never fabricates a value — a record with no design captured yields ''."""
+    """{record_id: {'study_design':<str>, 'source_db':<str>, 'abstract_length':<str>}} for stratified recall.
+    source_db + abstract_length (bucketed via reliability.abstract_length_bucket — a strong AVERAGE recall can
+    hide the AI doing worse on short/terse abstracts) are read from master_records.csv; study_design from the
+    latest extraction/RoB audit (the reconciled Consensus_Value wins over the raw AI value). Never fabricates a
+    value — a record with no design/abstract captured yields ''."""
     out: dict[str, dict] = {}
     m = _master()
     if m is not None and "source_db" in m.columns:
+        import reliability as R
         for rid, row in m.iterrows():
             out.setdefault(str(rid), {})["source_db"] = str(row.get("source_db", "") or "").strip()
+            out[str(rid)]["abstract_length"] = R.abstract_length_bucket(row.get("abstract", ""))
     try:
         df, _ = _audit_df()
     except Exception:
@@ -2790,6 +2794,7 @@ def _stratified_recall(hp: Path, ap: Path, thr: float, indep: bool, outdir: Path
         return {}
     H["study_design"] = H[rid_col].map(lambda r: (strata.get(str(r).strip(), {}).get("study_design") or "").strip())
     H["source_db"] = H[rid_col].map(lambda r: (strata.get(str(r).strip(), {}).get("source_db") or "").strip())
+    H["abstract_length"] = H[rid_col].map(lambda r: (strata.get(str(r).strip(), {}).get("abstract_length") or "").strip())
     outdir.mkdir(parents=True, exist_ok=True)
     enriched = outdir / (hp.stem + "_strata.csv")
     H.to_csv(enriched, index=False, encoding="utf-8")
@@ -2798,18 +2803,24 @@ def _stratified_recall(hp: Path, ap: Path, thr: float, indep: bool, outdir: Path
     except Exception as e:
         return {"_error": f"could not join records for stratification: {e}"}
     panels = {}
-    for col, label in (("study_design", "Study design"), ("source_db", "Source database")):
+    for col, label in (("study_design", "Study design"), ("source_db", "Source database"),
+                       ("abstract_length", "Abstract length")):
         if col not in merged.columns:
             panels[col] = {"label": label, "available": False, "note": "no such field on the joined records"}
             continue
         vals = [str(v).strip() for v in merged[col].tolist()]
         distinct = sorted({v for v in vals if v})
         if len(distinct) < 2:
-            panels[col] = {"label": label, "available": False,
-                           "note": ("No study-design field was captured for these records — design is recorded "
-                                    "at data extraction, so design-stratified recall becomes available only after "
-                                    "some studies are extracted." if col == "study_design"
-                                    else "Only one source database is present, so there is nothing to stratify.")}
+            if col == "study_design":
+                note = ("No study-design field was captured for these records — design is recorded "
+                        "at data extraction, so design-stratified recall becomes available only after "
+                        "some studies are extracted.")
+            elif col == "abstract_length":
+                note = ("No abstract text was captured for these records (build the master set first), or "
+                        "every abstract falls in the same length band, so there is nothing to stratify.")
+            else:
+                note = "Only one source database is present, so there is nothing to stratify."
+            panels[col] = {"label": label, "available": False, "note": note}
             continue
         strata_series = [v if v else "(not recorded)" for v in vals]     # blank -> a VISIBLE stratum, never dropped
         sm = R.stratified_metrics(human, ai, strata_series, scores=scores,

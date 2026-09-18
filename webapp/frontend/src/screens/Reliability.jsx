@@ -28,9 +28,9 @@ function IntervalBar({ lo, hi, point }) {
   )
 }
 
-// Recall broken down by subgroup (study design, source database), read from rel.per_stratum. A strong AVERAGE
-// recall can hide poor recall in one kind of study (RAISE Part 2 §2.1); small subgroups get wide CIs + a ⚠, and
-// subgroups too small/absent are SHOWN as such, never dropped (prefer-completeness-no-silent-narrowing).
+// Recall broken down by subgroup (study design, source database, abstract length), read from rel.per_stratum.
+// A strong AVERAGE recall can hide poor recall in one kind of study (RAISE Part 2 §2.1); small subgroups get
+// wide CIs + a ⚠, and subgroups too small/absent are SHOWN as such, never dropped (prefer-completeness-no-silent-narrowing).
 function StratifiedTable({ per }) {
   // Surface a join/compute error rather than silently vanishing (prefer-completeness-no-silent-narrowing).
   if (per && per._error) return (
