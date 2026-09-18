@@ -673,7 +673,15 @@ async def upload(files: list[UploadFile] = File(...), n_screeners: int = Form(5)
     n_identified = len(df)
     by_source = df["source_db"].replace("", "unspecified").value_counts().to_dict()
     deduped, n_dups = MR.deduplicate(df)
-    master = MR.build_master(deduped)
+    # Carry record_ids over from any existing master_records.csv (a currency-window re-search, or a
+    # re-upload of a previously-downloaded export) instead of renumbering everything from REC_0001 —
+    # a renumber would silently orphan every screening/RoB/extraction record already filed by id.
+    previous = MR.load_previous_master(OUT / "master_records.csv")
+    try:
+        master = MR.build_master(deduped, previous=previous)
+    except ValueError as e:
+        return {"error": "id_assignment_failed",
+                "message": f"Could not assign record ids against the existing master_records.csv ({e})."}
     n_screeners = max(1, min(int(n_screeners), 26))
     master.to_csv(OUT / "master_records.csv", index=False)
     MR.write_ris(master, OUT / "master_records.ris")
@@ -686,6 +694,11 @@ async def upload(files: list[UploadFile] = File(...), n_screeners: int = Form(5)
     res["ok"] = True
     res["note"] = ("De-duplication is assisted, not final — check near-duplicates by hand before screening "
                    "(Cochrane). The duplicate count is a reportable PRISMA number.")
+    if previous is not None and len(previous):
+        carried = int(master["record_id"].isin(set(previous["record_id"].astype(str))).sum())
+        res["note"] += (f" Re-run detected: kept the existing record_id for {carried} previously-seen "
+                         f"stud{'y' if carried == 1 else 'ies'} and assigned {len(master) - carried} new id(s) "
+                         f"— every earlier screening/RoB/extraction record stays linked to the right study.")
     return res
 
 

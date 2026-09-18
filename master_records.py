@@ -51,6 +51,12 @@ def normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
     df[EXPECTED_COLUMNS] = df[EXPECTED_COLUMNS].fillna("").astype(str)
+    # A re-uploaded/re-exported master file already carries record_id + title_hash (e.g. a user
+    # re-uploading their own downloaded master_records.csv alongside a fresh search export, or a
+    # combined old+new file). Drop both here so build_master() always assigns them itself — via
+    # id-matching against `previous` when given, never a blind positional re-number — instead of a
+    # stray incoming record_id silently surviving into the id column, or colliding with the insert.
+    df = df.drop(columns=[c for c in ("record_id", "title_hash") if c in df.columns])
     return df
 
 
@@ -58,6 +64,17 @@ def first_author(authors: str) -> str:
     """Best-effort first-author surname from a free-text author string."""
     if not authors.strip():
         return ""
+    # A real ',' separates AUTHORS only in "Surname, Initial" form (comma right after one name-like
+    # token, e.g. "Smith, J."). "Smith J, Jones K" instead uses the comma to separate PEOPLE, each
+    # already "Surname Initial" — the surname is the FIRST token, not the last. Tell the two apart by
+    # whether the text before the first ',' looks like a single name (<=2 tokens).
+    if "," in authors and " and " not in authors and "&" not in authors and ";" not in authors:
+        before_comma = authors.split(",")[0].strip()
+        if len(before_comma.split()) <= 1:
+            # "Smith, J., Jones, K." — comma directly follows the surname.
+            return before_comma
+        # "Smith J, Jones K" — comma separates people; each is "Surname Initial(s)".
+        return before_comma.split()[0]
     # split on the common multi-author separators
     for sep in (";", " and ", "&", ","):
         if sep in authors:
@@ -86,10 +103,12 @@ def title_hash(title: str, authors: str, year: str) -> str:
 
 
 def normalise_doi(doi: str) -> str:
-    """Bare, comparable DOI: lower-case, no doi.org prefix, no surrounding whitespace."""
-    d = str(doi or "").strip().lower()
-    d = re.sub(r"^https?://(dx\.)?doi\.org/", "", d)
-    return d
+    """Bare, comparable DOI: lower-case, no doi.org/doi: prefix, no angle brackets, no surrounding whitespace."""
+    d = str(doi or "").strip().lower().strip("<>").strip()
+    d = re.sub(r"^https?://(dx\.)?doi\.org/", "", d)   # https://doi.org/10.xxxx or https://dx.doi.org/10.xxxx
+    d = re.sub(r"^(dx\.)?doi\.org/", "", d)            # doi.org/10.xxxx (no scheme)
+    d = re.sub(r"^doi:\s*", "", d)                     # doi:10.xxxx
+    return d.strip()
 
 
 def deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -119,7 +138,7 @@ def deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
         + df["abstract"].astype(str).str.len()
     )
     keep = (
-        df.sort_values("_score", ascending=False)
+        df.sort_values("_score", ascending=False, kind="mergesort")   # stable: ties keep input order
         .drop_duplicates("_key", keep="first")["_orig"]
     )
     n_removed = len(df) - len(keep)
@@ -150,13 +169,73 @@ def update_stage_counts(path: Path, updates: dict, defaults: dict | None = None)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def build_master(df: pd.DataFrame) -> pd.DataFrame:
+def build_master(df: pd.DataFrame, previous: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Assign stable REC_NNNN ids.
+
+    If `previous` — an existing master_records.csv from an earlier run — is given, a row that matches a
+    previous row by DOI (preferred) or by title_hash keeps that SAME record_id; only a genuinely new row
+    mints a new id, continuing the numbering after the highest id already in use. This is what makes a
+    later currency-window rerun (re-searching every 6-12 months, MECIR C37 / playbook-search step 14) safe:
+    without it, re-running on a combined old+new set silently renumbers every existing study, orphaning
+    every screening/RoB/extraction record already filed under its old id.
+
+    With no `previous`, ids are minted fresh from row position — the original (first-run) behaviour.
+    """
     df = df.copy().reset_index(drop=True)
-    df.insert(0, "record_id", [f"REC_{i + 1:04d}" for i in range(len(df))])
     df["title_hash"] = [
         title_hash(r["title"], r["authors"], r["year"]) for _, r in df.iterrows()
     ]
+
+    if previous is not None and len(previous):
+        prev = previous.copy()
+        if "title_hash" not in prev.columns:
+            prev["title_hash"] = [
+                title_hash(str(r.get("title", "")), str(r.get("authors", "")), str(r.get("year", "")))
+                for _, r in prev.iterrows()
+            ]
+        by_doi, by_hash, max_n = {}, {}, 0
+        for _, r in prev.iterrows():
+            rid = str(r.get("record_id", "")).strip()
+            m = re.match(r"^REC_(\d+)$", rid)
+            if m:
+                max_n = max(max_n, int(m.group(1)))
+            if not rid:
+                continue
+            d = normalise_doi(str(r.get("doi", "")))
+            if d:
+                by_doi.setdefault(d, rid)
+            th = str(r.get("title_hash", "")).strip()
+            if th:
+                by_hash.setdefault(th, rid)
+
+        record_ids = []
+        for _, r in df.iterrows():
+            d = normalise_doi(r["doi"])
+            rid = by_doi.get(d) if d else None
+            if not rid:
+                rid = by_hash.get(r["title_hash"])
+            if not rid:
+                max_n += 1
+                rid = f"REC_{max_n:04d}"
+            record_ids.append(rid)
+        df.insert(0, "record_id", record_ids)
+    else:
+        df.insert(0, "record_id", [f"REC_{i + 1:04d}" for i in range(len(df))])
+
     return df
+
+
+def load_previous_master(path: Path) -> pd.DataFrame | None:
+    """Load an existing master_records.csv for id carry-over, or None if it doesn't exist / can't be read."""
+    if not path.exists():
+        return None
+    try:
+        prev = pd.read_csv(path).fillna("")
+        if "record_id" not in prev.columns:
+            return None
+        return prev
+    except Exception:
+        return None
 
 
 def write_ris(df: pd.DataFrame, path: Path) -> None:
@@ -212,9 +291,17 @@ def write_screening_orders(record_ids: list[str], n_screeners: int, seed: int, p
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build the EvidenceEngine master record set.")
     ap.add_argument("input_csv", help="Deduplicated search-results CSV")
-    ap.add_argument("--screeners", type=int, default=3, help="Number of human screeners (default 3)")
+    ap.add_argument("--screeners", type=int, default=5,
+                     help="Number of human screeners (default 5 — the reliability layer's mixed-effects "
+                          "fatigue model needs >=5; 3-4 falls back to a fixed-effects model; <3 is descriptive only)")
     ap.add_argument("--seed", type=int, default=42, help="Random seed for reproducible orders")
     ap.add_argument("--outdir", default="Outputs", help="Output directory (default ./Outputs)")
+    ap.add_argument("--previous", default=None,
+                     help="Path to a prior master_records.csv to carry record_ids over from "
+                          "(default: auto-detect <outdir>/master_records.csv if present)")
+    ap.add_argument("--fresh", action="store_true",
+                     help="Ignore any previous master_records.csv and renumber from REC_0001 "
+                          "(rarely what you want — breaks every existing screening/RoB/extraction record's link)")
     args = ap.parse_args()
 
     in_path = Path(args.input_csv)
@@ -231,10 +318,24 @@ def main() -> int:
     by_source = df["source_db"].replace("", "unspecified").value_counts().to_dict()
     df, n_dups = deduplicate(df)
 
-    master = build_master(df)
-
     outdir = Path(args.outdir)
     outdir.mkdir(exist_ok=True)
+
+    previous = None
+    if not args.fresh:
+        prev_path = Path(args.previous) if args.previous else (outdir / "master_records.csv")
+        previous = load_previous_master(prev_path)
+
+    try:
+        master = build_master(df, previous=previous)
+    except ValueError as e:
+        print(f"ERROR: could not assign record ids ({e}). If you're re-uploading an existing "
+              f"master_records.csv, pass --fresh to force a clean renumber instead.", file=sys.stderr)
+        return 1
+
+    if previous is not None:
+        carried = int(master["record_id"].isin(set(previous["record_id"].astype(str))).sum())
+        print(f"  carried over {carried} existing id(s) from {prev_path}; minted {len(master) - carried} new one(s)")
 
     master.to_csv(outdir / "master_records.csv", index=False)
     write_ris(master, outdir / "master_records.ris")
