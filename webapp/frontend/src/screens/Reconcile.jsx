@@ -57,7 +57,8 @@ export default function Reconcile() {
     const row = (state?.rows || []).find(x => x.record_id === rid) || {}
     const exReason = d0.exReason ?? row.exclusion_reason ?? ''
     const exQuote = String(d0.exQuote ?? row.supporting_quote ?? '')
-    // interesting-but-ineligible bookmark carries on a full-text exclude (F2): draft edit wins, else the 5b tag
+    // interesting-but-ineligible bookmark carries on an exclude at EITHER stage: draft edit wins, else the
+    // existing tag on the row (from a prior screener/reconciliation)
     const interesting = ((d0.interesting ?? (row.interesting === 'yes')) ? 'yes' : '')
     // A final full-text EXCLUDE must carry a failed-criterion reason + verbatim quote (C41) — guard client-side too.
     if (!routed && decision === 'exclude' && stage === 'fulltext' && !(exReason && exQuote.trim())) {
@@ -318,15 +319,19 @@ export default function Reconcile() {
                       <div className="muted" style={{ flexBasis: '100%', fontSize: 10.5 }}>
                         MECIR C40: an outcome not <strong>reported</strong> is not an exclusion ground (synthesis matter) — exclude on the outcome only if it wasn’t <strong>measured</strong>.
                       </div>
-                      {/* interesting-but-ineligible bookmark (F2) — pre-checked if the 5b screener flagged it */}
-                      <label style={{ flexBasis: '100%', display: 'flex', gap: 6, alignItems: 'center', fontSize: 11.5, color: '#374151' }}>
-                        <input type="checkbox"
-                          checked={draft[r.record_id]?.interesting ?? (r.interesting === 'yes')}
-                          onChange={e => setDraft(s => ({ ...s, [r.record_id]: { ...(s[r.record_id] || {}), interesting: e.target.checked } }))} />
-                        Interesting but ineligible — bookmark for the background/discussion &amp; reference-list mining (saved on an Exclude consensus; never enters the included set)
-                      </label>
                     </div>
                   )}
+
+                  {/* interesting-but-ineligible bookmark (playbook-title-abstract-screening step 9 / F2) — the
+                      SAME three-bucket distinction (excluded ≠ awaiting-classification ≠ interesting-but-
+                      ineligible) applies at BOTH screening stages, not full-text only; pre-checked if a
+                      screener already flagged it. Saved only on an Exclude consensus (backend-enforced). */}
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11.5, color: '#374151', margin: '6px 0 2px' }}>
+                    <input type="checkbox"
+                      checked={draft[r.record_id]?.interesting ?? (r.interesting === 'yes')}
+                      onChange={e => setDraft(s => ({ ...s, [r.record_id]: { ...(s[r.record_id] || {}), interesting: e.target.checked } }))} />
+                    Interesting but ineligible — bookmark for the background/discussion &amp; reference-list mining (saved on an Exclude consensus; never enters the included set)
+                  </label>
 
                   {/* consensus control */}
                   <div className="recon-actions">

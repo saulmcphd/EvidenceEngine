@@ -1920,8 +1920,10 @@ def consensus_write(payload: dict = Body(...)):
     note = str(payload.get("note", "")).strip()
     excl_reason = str(payload.get("exclusion_reason", "")).strip()
     excl_quote = str(payload.get("supporting_quote", "")).strip()
-    # interesting-but-ineligible tag carries only on a full-text EXCLUDE consensus (F2)
-    interesting = "yes" if (stage == "fulltext" and cons == "exclude" and
+    # interesting-but-ineligible tag carries on an EXCLUDE consensus at EITHER stage (F2; the three-bucket
+    # distinction — excluded / awaiting-classification / interesting-but-ineligible — is required at abstract
+    # stage too, playbook-title-abstract-screening step 9, not just full-text)
+    interesting = "yes" if (cons == "exclude" and
                             str(payload.get("interesting", "")).strip().lower() in ("yes", "true", "1", "on")) else ""
     if not rid:
         return {"error": "bad_request"}
