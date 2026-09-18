@@ -351,6 +351,10 @@ def main() -> int:
                 n_okf += 1
             if n_okf:                       # skip the whole-bundle rebuild on a no-op run
                 okf_writer.write_index(bundle)
+                okf_writer.append_log(bundle,
+                    f"**AI abstract screening run**: {n_okf} record(s) screened via `{args.model}` "
+                    f"(`{prompt_path.name}`) — include={stage_counts['abstract_included']}, "
+                    f"exclude={stage_counts['abstract_excluded']}, uncertain={stage_counts['abstract_uncertain']}.")
             print(f"OKF: wrote/updated {n_okf} screening-decision node(s) (human_verified:false) in {bundle}")
         except Exception as e:  # noqa: BLE001 - OKF writing is best-effort, never fatal
             print(f"OKF: skipped node writing ({e})", file=sys.stderr)

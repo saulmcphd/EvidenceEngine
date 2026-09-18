@@ -457,6 +457,12 @@ def main():
                 n_okf += 1
             if n_okf:                       # skip the whole-bundle rebuild on a no-op run
                 okf_writer.write_index(bundle)
+                n_success = sum(1 for r in results if r.get('Status') == 'SUCCESS')
+                n_fail = len(results) - n_success
+                okf_writer.append_log(bundle,
+                    f"**AI extraction/RoB run**: {n_success} PDF(s) extracted via `{CHOSEN_PROVIDER}` "
+                    f"(`{CHOSEN_MODEL}`, form `{PROMPT_VERSION or 'unversioned'}`)"
+                    + (f"; {n_fail} failed and need manual extraction" if n_fail else "") + ".")
             print(f"OKF: wrote/updated {n_okf} data-extraction node(s) (human_verified:false) in {bundle}")
         except Exception as e:
             print(f"OKF: skipped node writing ({e})")

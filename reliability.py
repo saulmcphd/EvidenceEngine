@@ -680,6 +680,14 @@ def _write_reliability_okf_node(ai_csv, stage, metrics, metrics_path) -> None:
         okf_writer.write_reliability_node(bundle, stage=stage or "screening", metrics=metrics,
                                           provenance=prov, metrics_path=str(metrics_path))
         okf_writer.write_index(bundle)
+        r = metrics.get("recall_HEADLINE")
+        acc = metrics.get("acceptance") or {}
+        verdict = ("pass" if acc.get("passes_headline") else "not met") if "passes_headline" in acc else ""
+        recall_part = f"recall={r:.3f}" if isinstance(r, (int, float)) else "recall not estimable"
+        verdict_part = f", verdict={verdict}" if verdict else ""
+        okf_writer.append_log(bundle,
+            f"**Reliability run ({stage or 'screening'})**: AI (`{model_val}`) vs. blind human — "
+            f"{recall_part}{verdict_part}.")
         print(f"OKF: wrote reliability report node (stage={stage or 'screening'}, human_verified:false) in {bundle}")
     except Exception as e:  # noqa: BLE001 - OKF writing is best-effort, never fatal
         print(f"OKF: skipped reliability node writing ({e})")

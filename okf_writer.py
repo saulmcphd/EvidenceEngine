@@ -383,14 +383,6 @@ def write_extraction_node(bundle: Path, *, record_id: str, provenance: dict, fie
                           provenance=provenance, extra_frontmatter=extra)
 
 
-_RELIABILITY_HEADLINE_FIELDS = [
-    "recall_HEADLINE", "recall_95ci_twosided", "recall_95_onesided_lower", "positives_in_human",
-    "missed_relevant_FN", "acceptance_threshold", "acceptance_verdict", "threshold_independent",
-    "fbeta", "beta", "precision_secondary", "specificity_secondary", "f1_secondary",
-    "auc_secondary", "wss_at_recall", "kappa", "kappa_95ci", "kappa_band",
-]
-
-
 def write_reliability_node(bundle: Path, *, stage: str, metrics: dict, provenance: dict,
                            metrics_path: str = "") -> Path:
     """Emit one reliability-report node: AI-vs-BLIND-human screening agreement (recall/F-beta/kappa/etc.).
@@ -400,7 +392,9 @@ def write_reliability_node(bundle: Path, *, stage: str, metrics: dict, provenanc
     claim to a node. `metrics` is the dict `reliability.screening_metrics()`/`run_screening()` returns;
     only a curated headline subset is tabled (the full numbers stay in `metrics_path` for traceability -
     the raw dict is not dumped verbatim, since it can carry nested per-stratum objects a markdown table
-    can't render cleanly)."""
+    can't render cleanly). Field paths mirror screening_metrics()'s ACTUAL return shape (acceptance and
+    kappa are nested dicts, not flat keys — get this wrong and every row silently fails to render, which
+    is exactly what happened here before this fix)."""
     stage_label = (stage or "screening").strip()
     slug = f"reliability-{stage_label}"
     title = f"Reliability report - {stage_label}"
@@ -412,17 +406,40 @@ def write_reliability_node(bundle: Path, *, stage: str, metrics: dict, provenanc
             return "[" + ", ".join(_fmt(x) for x in v) + "]"
         return str(v)
 
+    acc = metrics.get("acceptance") or {}
+    kap = metrics.get("kappa_secondary") or {}
+    wss = metrics.get("wss_diagnostic") or {}
     r = metrics.get("recall_HEADLINE")
     ci = metrics.get("recall_95ci_twosided") or [None, None]
-    verdict = metrics.get("acceptance_verdict") or ""
+    verdict = ("pass" if acc.get("passes_headline") else "not met") if "passes_headline" in acc else ""
     desc = (f"AI-vs-blind-human {stage_label} screening reliability: recall="
             + (_fmt(r) if r is not None else "not estimable")
             + (f" (95% CI {_fmt(ci)})" if ci and ci[0] is not None else "")
             + (f"; verdict={verdict}" if verdict else "") + ".")
 
-    rows = "\n".join(
-        f"| {k} | {_fmt(metrics[k])} |" for k in _RELIABILITY_HEADLINE_FIELDS
-        if metrics.get(k) is not None)
+    # (label, value) pairs, each pulled from its REAL location in the metrics dict — flat fields first,
+    # then the acceptance-gate block, then the secondary kappa/WSS diagnostics.
+    headline = [
+        ("recall_HEADLINE", metrics.get("recall_HEADLINE")),
+        ("recall_95ci_twosided", metrics.get("recall_95ci_twosided")),
+        ("recall_95_onesided_lower", metrics.get("recall_95_onesided_lower")),
+        ("positives_in_human", metrics.get("positives_in_human")),
+        ("missed_relevant_FN", metrics.get("missed_relevant_FN")),
+        ("acceptance.recall_threshold", acc.get("recall_threshold")),
+        ("acceptance.passes_headline", acc.get("passes_headline")),
+        ("acceptance.threshold_independent", acc.get("threshold_independent")),
+        ("fbeta", metrics.get("fbeta")),
+        ("beta", metrics.get("beta")),
+        ("precision", metrics.get("precision")),
+        ("specificity_secondary", metrics.get("specificity_secondary")),
+        ("f1_secondary", metrics.get("f1_secondary")),
+        ("auc_secondary", metrics.get("auc_secondary")),
+        ("wss_diagnostic.wss", wss.get("wss")),
+        ("kappa_secondary.kappa", kap.get("kappa")),
+        ("kappa_secondary.ci", kap.get("ci")),
+        ("kappa_secondary.interpretation_landis_koch", kap.get("interpretation_landis_koch")),
+    ]
+    rows = "\n".join(f"| {k} | {_fmt(v)} |" for k, v in headline if v is not None)
     caveats = metrics.get("_caveats") or []
     caveats_md = "\n".join(f"- {_safe_text(_sanitize(str(c)))}" for c in caveats) if caveats else "(none recorded)"
     extra = [("kind", "reliability-report"), ("stage", "reliability"), ("screening_stage", stage_label)]
@@ -1141,6 +1158,40 @@ def init_bundle(bundle: Path) -> None:
         write_responsible_handover(bundle, {})
     write_index(bundle)
     print(f"init_bundle: ensured structure at {bundle}")
+
+
+def append_log(bundle: Path, entries, *, date: str | None = None) -> Path:
+    """Append one or more bullet entries to the bundle's log.md — the OKF v0.1 reserved 'chronological
+    history of changes to this bundle (newest first)' file. log.md's own header has said since 2026-06-30
+    'Maintained by okf_writer.append_log once Phase 2 lands' but no such function existed until now, so every
+    run since has silently gone unrecorded. Entries are grouped under a '## YYYY-MM-DD' heading (today's, or
+    `date` if given); a NEW day's heading is inserted before the first existing one so the file stays
+    newest-first, and repeat calls on the same day add more bullets under the existing heading rather than
+    creating a duplicate one. This is a run-level summary log (one or a few bullets per stage RUN, matching
+    every existing entry's granularity), never one entry per record — callers should pass a single
+    summarising line, not one per screening/extraction decision."""
+    bundle = Path(bundle)
+    log_path = bundle / "log.md"
+    entries = [str(entries)] if isinstance(entries, str) else [str(e) for e in entries]
+    if not entries:
+        return log_path
+    d = date or _today()
+    if log_path.exists():
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+    else:
+        lines = ["# Directory Update Log", "",
+                 "Reserved OKF v0.1 file: chronological history of changes to this bundle (newest first). "
+                 "Maintained by `okf_writer.append_log`.", ""]
+    heading = f"## {d}"
+    bullets = [e if e.lstrip().startswith(("*", "-")) else f"* {e}" for e in entries]
+    if heading in lines:
+        insert_at = lines.index(heading) + 1
+        lines[insert_at:insert_at] = bullets
+    else:
+        first_heading_idx = next((i for i, ln in enumerate(lines) if ln.startswith("## ")), len(lines))
+        lines[first_heading_idx:first_heading_idx] = [heading, ""] + bullets + [""]
+    log_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return log_path
 
 
 def write_index(bundle: Path) -> None:
