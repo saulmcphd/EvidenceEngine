@@ -12,9 +12,11 @@ provenance:
 
 > **Draft — not human-verified.** APA 7th style; DOIs are authoritative and resolve. The SYNERGY dataset and the
 > Cochrane RCT Classifier entries were verified against authoritative sources (DataverseNL; the *Journal of Clinical
-> Epidemiology* record). **Before submission, still confirm every entry's volume/issue/page numbers via Crossref**
-> and complete the one entry flagged `[VERIFY]` (Wilson, 1927); no bibliographic detail beyond node frontmatter or a
-> resolving DOI has been asserted here (playbook-write-up: never fabricate a citation).
+> Epidemiology* record). The MECIR entry was added and verified by fetching the live Cochrane MECIR manual page
+> (cochrane.org) — title, authors, and version confirmed there. **Before submission, still confirm every entry's
+> volume/issue/page numbers via Crossref** and complete the one entry flagged `[VERIFY]` (Wilson, 1927); no
+> bibliographic detail beyond node frontmatter or a resolving DOI has been asserted here (playbook-write-up: never
+> fabricate a citation).
 
 # References
 
@@ -24,6 +26,10 @@ https://doi.org/10.1197/jamia.M1929
 
 De Bruin, J., Ma, Y., Ferdinands, G., Teijema, J., & van de Schoot, R. (2023). *SYNERGY — Open machine-learning
 dataset on study selection in systematic reviews* [Data set]. DataverseNL. https://doi.org/10.34894/HE6NAQ
+
+Higgins, J. P. T., Lasserson, T., Thomas, J., Flemyng, E., & Churchill, R. (2023). *Methodological expectations of
+Cochrane intervention reviews (MECIR)* (Version August 2023). Cochrane.
+https://www.cochrane.org/authors/handbooks-and-manuals/mecir-manual
 
 Higgins, J. P. T., Thomas, J., Chandler, J., Cumpston, M., Li, T., Page, M. J., & Welch, V. A. (Eds.). (2019).
 *Cochrane handbook for systematic reviews of interventions* (2nd ed.). Wiley.

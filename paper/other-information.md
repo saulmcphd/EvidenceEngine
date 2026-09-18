@@ -35,7 +35,7 @@ provenance:
 
 The evaluation was **author-built and author-evaluated**: the developer of the pipeline conducted its validation.
 This is a real conflict of interest, declared here, and it is the reason the evaluation is **not** presented as
-independent (RAISE Part 1, recommendation 2.8). The acceptance threshold was likewise the tool's own default and was
+independent (Thomas et al., 2026, RAISE Part 1, recommendation 2.8). The acceptance threshold was likewise the tool's own default and was
 not set by an evaluator independent of the developer, which is reported as a default gate rather than an a-priori
 acceptance decision. Mitigation for the follow-up study: recruit an independent methodologist to fix the acceptance
 bar and audit the evaluation design before any scoring.
@@ -46,6 +46,6 @@ All run artefacts—the record set, the AI decisions with rationales and self-re
 metrics, the pre-scoring memorization probe, and the generated AI-use disclosure—are retained in an interoperable
 Open Knowledge Foundation bundle that serves as the data-availability statement: the bundle *is* the supplement. It is
 to be released under an open licence with a Zenodo digital object identifier, Dublin Core metadata, and per-file
-checksums, following FAIR (data) and FAIR4RS (research software) principles, as recommended for tool developers in RAISE Part 1
-(recommendation 3.6; verified against the RAISE Part 1 source). The benchmark dataset itself is openly distributed as
-part of the SYNERGY collection (see References).
+checksums, following FAIR (data) and FAIR4RS (research software) principles, as recommended for tool developers in
+RAISE Part 1 (Thomas et al., 2026, recommendation 3.6; verified against the RAISE Part 1 source). The benchmark
+dataset itself is openly distributed as part of the SYNERGY collection (see References).

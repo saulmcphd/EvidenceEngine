@@ -29,21 +29,23 @@ local, provider-agnostic pipeline (EvidenceEngine).*
 
 2. **[Body opens with the title repeated — no "Introduction" heading (`apa-style`)].** Background & rationale:
    - AI is entering every stage of systematic reviewing; the governing concern is that a generative model must
-     **augment, never replace, human judgement** (Cochrane MECIR C39; RAISE Part 1 human-oversight rec 3.20).
+     **augment, never replace, human judgement** (Higgins et al., 2023, Cochrane MECIR C39; Thomas et al., 2026,
+     RAISE Part 1 human-oversight rec 3.20).
    - The product thesis this paper evaluates: a **human-first, AI-second** spine — a human completes each step, an AI
      repeats it *independently*, the two are compared, and the human reconciles — applied across the *whole* pipeline,
      with a **blind-first** reliability layer. State what is novel (others apply AI to a single step; the
      human-first-then-AI-check-across-all-steps design is not established) without over-claiming.
    - The two threats a validation must confront up front: **training-data contamination** (validating against a
-     published review the model may have memorised — RAISE Part 2 §2, pp.16–18) and the **reference-standard ceiling**
-     (performance can be only as good as the labels it is graded against — RAISE Part 2 Appendix 1, p.32).
+     published review the model may have memorised — Thomas et al., 2026, RAISE Part 2 §2, pp.16–18) and the
+     **reference-standard ceiling** (performance can be only as good as the labels it is graded against — Thomas
+     et al., 2026, RAISE Part 2 Appendix 1, p.32).
    - **Objective (explicit).** Estimate the recall of the AI abstract second-screener against a benchmark reference
      standard, recall-first, with the contamination risk measured and disclosed rather than assumed away.
 
 3. **Methods** (drafted in `methods-section.md`): the pipeline; the AI abstract screener; the benchmark dataset and
    reference standard (with the criteria-approximation caveat); contamination handling (the pre-scoring memorization
    probe); the recall-first reliability analysis and the a-priori-vs-default acceptance threshold; the AI-use
-   disclosure (RAISE Part 1 recs 1.8/1.9 buckets) and human-oversight statement; software/reproducibility.
+   disclosure (Thomas et al., 2026, RAISE Part 1 recs 1.8/1.9 buckets) and human-oversight statement; software/reproducibility.
 
 4. **Results** — *stub, to draft next.* No clinical outcomes, so **no GRADE / Summary-of-findings table**; the results
    object is the reliability table. Report, from `reliability/metrics.json`:
@@ -79,7 +81,7 @@ local, provider-agnostic pipeline (EvidenceEngine).*
 
 7. **Other information** (PRISMA 24–26). Registration (____ — none yet; state honestly); funding + funder role (____);
    competing interests (**author-built and author-evaluated — a real conflict, declared; the evaluation is not
-   presented as independent**, RAISE Part 1 rec 2.8); data/code availability = the OKF bundle (Zenodo DOI, FAIR /
+   presented as independent**, Thomas et al., 2026, RAISE Part 1 rec 2.8); data/code availability = the OKF bundle (Zenodo DOI, FAIR /
    FAIR4RS) — the bundle is the data-availability statement (PRISMA item 27).
 
 ## Inputs → sections (the join spine)

@@ -60,15 +60,15 @@ accuracy headline. Table 1 collects the full metric set.
 | | Cohen's κ | .12 | [.06, .17] |
 
 *Note.* Confusion matrix: 69 true positives, 9 false negatives, 171 false positives, 78 true negatives.
-Precision and κ are secondary/tertiary by design and are not the evaluation's headline (RAISE Part 2, p. 5;
-Appendix 1).
+Precision and κ are secondary/tertiary by design and are not the evaluation's headline (Thomas et al., 2026, RAISE
+Part 2, p. 5; Appendix 1).
 
 ## Acceptance against the pre-specified threshold
 
 Judged against the pipeline's default recall target of .95 on the one-sided 95% lower bound, the screener did not
 clear the bar (.81 < .95), and the run was flagged **re-pilot**. We report this as a *default* gate rather than a
-formal acceptance decision, because the target was not set a priori and independently of the tool developer (RAISE
-Part 2 §1, Box 2, p. 9). The number of reference-relevant records (78) exceeded the minimum we had set for a stable
+formal acceptance decision, because the target was not set a priori and independently of the tool developer (Thomas
+et al., 2026, RAISE Part 2 §1, Box 2, p. 9). The number of reference-relevant records (78) exceeded the minimum we had set for a stable
 estimate, so the shortfall reflects screening behaviour on this benchmark rather than an underpowered gate.
 
 ## Error analysis: the nine missed records

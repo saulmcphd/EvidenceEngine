@@ -23,13 +23,14 @@ second-screener, embedded in a local systematic-review pipeline (EvidenceEngine)
 Study-Within-A-Review: the AI screened a fixed record set independently, and its decisions were graded against an
 external reference standard. Consistent with guidance that recall (sensitivity) is paramount for screening because a
 missed relevant study is far costlier than an extra one to read, we specified recall as the primary outcome and
-treated precision and related quantities as secondary (RAISE Part 2, p. 5). The evaluation and its reporting were
-structured to the RAISE Part 2 §4 reporting checklist (pp. 22–24).
+treated precision and related quantities as secondary (Thomas et al., 2026, RAISE Part 2, p. 5). The evaluation and
+its reporting were structured to the RAISE Part 2 §4 reporting checklist (Thomas et al., 2026, pp. 22–24).
 
 The pipeline instantiates a *human-first, AI-second* design: a human completes a review step, an AI repeats the same
 step independently against the identical criteria, the two are compared, and the human reconciles any disagreement,
 whose reconciled decision—not the AI output—becomes the review's data. The AI is therefore a second screener and
-never the sole reviewer (Cochrane MECIR C39; RAISE Part 1 human-oversight recommendation 3.20). The present benchmark
+never the sole reviewer (Higgins et al., 2023, Cochrane MECIR C39; Thomas et al., 2026, RAISE Part 1, human-oversight
+recommendation 3.20). The present benchmark
 exercised the AI arm and the comparison against a reference standard; because the reference labels stood in for the
 human arm (see below), the reconciliation step was demonstrated by design but not applied to these records. The
 pipeline runs locally through a provider-agnostic model interface, so no record content or key left the analysis
@@ -73,7 +74,8 @@ tend to *lower* apparent recall by causing defensible but non-matching exclusion
 Because the reference standard is a published review that the model may have encountered during training, we ran a
 memorization probe **before** any scoring and recorded its output verbatim to the run record
 (`reliability/memorization-probe.md`), so that a suspiciously high recall could be traced to memorisation rather than
-skill (RAISE Part 2 §2, data contamination, pp. 16–18). The configured model was asked, without access to the labels,
+skill (Thomas et al., 2026, RAISE Part 2 §2, data contamination, pp. 16–18). The configured model was asked, without
+access to the labels,
 whether it recognised the review and could name its included studies. It reported recognising the Cohen et al. (2006)
 paper and its use of the SYNERGY dataset but stated that it could not name specific included clinical studies. We
 therefore interpret the recall estimate as a possibly memorisation-inflated **upper bound** and, following the
@@ -86,7 +88,8 @@ We joined the AI decisions to the reference labels on a stable record identifier
 metrics with the positive class defined as *include* (and, per the recall-first stance, *uncertain* mapped to
 include). The primary quantity was recall with a Wilson 95% confidence interval. We report as secondary the
 recall-weighted *F*β with β = 3 (a missed relevant study judged roughly β² ≈ 9 times as costly as an extra full-text
-screen; RAISE Part 2 Appendix 1, p. 34), specificity, precision, the area under the receiver-operating-characteristic
+screen; Thomas et al., 2026, RAISE Part 2 Appendix 1, p. 34), specificity, precision, the area under the
+receiver-operating-characteristic
 curve, and work-saved-over-sampling at 95% recall; and as tertiary, with explicit caveats, *F*1 and Cohen's κ with a
 bootstrap 95% confidence interval and a prevalence note. We did not headline *F*1, accuracy, or κ, because on a highly
 imbalanced screening set an "exclude-everything" classifier attains high accuracy while missing every relevant study.
@@ -94,9 +97,9 @@ imbalanced screening set an "exclude-everything" classifier attains high accurac
 The acceptance threshold was the pipeline's **default** recall target of .95, evaluated against the one-sided 95%
 Wilson lower bound of recall rather than the point estimate. Because no person was recorded as having set this target
 a priori and independently of the tool developer, we report it honestly as a default gate and not as an a-priori,
-developer-independent acceptance criterion (RAISE Part 2 §1, Box 2, p. 9). Every reported number is further bounded by
-the reference-standard ceiling: performance can be only as good as the reference labels, so an apparent AI error may
-be an error in the reference (RAISE Part 2 Appendix 1, p. 32).
+developer-independent acceptance criterion (Thomas et al., 2026, RAISE Part 2 §1, Box 2, p. 9). Every reported number
+is further bounded by the reference-standard ceiling: performance can be only as good as the reference labels, so an
+apparent AI error may be an error in the reference (Thomas et al., 2026, RAISE Part 2 Appendix 1, p. 32).
 
 We had pre-specified design-stratified recall (randomised-controlled-trial vs non-randomised studies), a source-
 database stratification, and a mixed-effects screening-fatigue model as secondary analyses. None was estimable on
@@ -106,16 +109,17 @@ as not available rather than substituting a proxy.
 
 ## AI-use disclosure and human oversight
 
-We disclose AI use per the RAISE Part 1 recommendations to declare AI use for each judgement (recommendation 1.8) and
-to report it against the four content buckets of recommendation 1.9: the tool name, version, and date; the purpose,
-the stage affected, and the justification with the validation reported here; declarations of interest; and the
-limitations of the AI use. Each AI decision was written to a provenance-stamped record carrying the exact model and
-version, the provider, the prompt file, and the prompt version, with a human-verification flag that is set only after
-a human reconciles the decision. The design principle that a human reconciles every AI judgement (MECIR C39; RAISE
-Part 1 recommendation 3.20) is built into the pipeline; we again note that this benchmark used published labels in
-place of that human arm, so the oversight step was not exercised on these records. The evaluation was author-built and
-author-evaluated—a real conflict of interest, which we declare and which means the evaluation is **not** presented as
-independent (RAISE Part 1 recommendation 2.8).
+We disclose AI use per the RAISE Part 1 recommendations (Thomas et al., 2026) to declare AI use for each judgement
+(recommendation 1.8) and to report it against the four content buckets of recommendation 1.9: the tool name, version,
+and date; the purpose, the stage affected, and the justification with the validation reported here; declarations of
+interest; and the limitations of the AI use. Each AI decision was written to a provenance-stamped record carrying the
+exact model and version, the provider, the prompt file, and the prompt version, with a human-verification flag that is
+set only after a human reconciles the decision. The design principle that a human reconciles every AI judgement
+(Higgins et al., 2023, MECIR C39; Thomas et al., 2026, RAISE Part 1, recommendation 3.20) is built into the pipeline;
+we again note that this benchmark used published labels in place of that human arm, so the oversight step was not
+exercised on these records. The evaluation was author-built and author-evaluated—a real conflict of interest, which we
+declare and which means the evaluation is **not** presented as independent (Thomas et al., 2026, RAISE Part 1,
+recommendation 2.8).
 
 ## Software, reproducibility, and data availability
 

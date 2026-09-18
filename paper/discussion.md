@@ -74,8 +74,8 @@ The result sits within a literature that has repeatedly framed AI-assisted scree
 work-saving pre-filter and cautioned against precision-oriented composites; the recall-first metric set and the
 work-saved framing follow that tradition, and the choice to gate on a high recall bar echoes the pre-specified
 99%-recall target adopted for the Cochrane randomised-controlled-trial classifier (Thomas et al., 2021). Setting such
-a target a priori and independently of the *tool* developer is a distinct reporting expectation (RAISE Part 2 §1,
-Box 2)—one this benchmark's default bar did not meet, and which the follow-up validation should.
+a target a priori and independently of the *tool* developer is a distinct reporting expectation (Thomas et al., 2026,
+RAISE Part 2 §1, Box 2)—one this benchmark's default bar did not meet, and which the follow-up validation should.
 What is less established, and what this paper positions rather than proves, is the surrounding design: a human
 completes each step, the AI repeats it independently, and the human reconciles, applied across the whole pipeline with
 a blind-first reliability layer. The present benchmark is a first, deliberately hedged step toward evaluating that
