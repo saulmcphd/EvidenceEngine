@@ -160,7 +160,7 @@ def _draw(model, project_title="", traice=None, scale=2):
     # --- build the boxes (content only; positions set during layout) ---
     # Identification
     b_id = newbox(main_x, main_w)
-    b_id.add("Records identified from:", True)
+    b_id.add("Records identified from:*", True)
     src = ident.get("by_source") or {}
     if src:
         for k, v in src.items():
@@ -172,7 +172,10 @@ def _draw(model, project_title="", traice=None, scale=2):
     b_rm = newbox(excl_x, excl_w, GREY)
     b_rm.add("Records removed before screening:", True)
     b_rm.add(f"Duplicate records removed (n = {_n(rb.get('duplicates_removed'))})")
-    b_rm.add(f"Records marked as ineligible by automated tools* (n = {_n(rb.get('automation_ineligible'))})")
+    # No asterisk here: EvidenceEngine's AI exclusions happen AT the screening step, not before it, so the
+    # official "if automation tools were used..." disclosure attaches to Screening -> Records excluded below,
+    # not to this line (playbook-prisma-flow, "Where the automation disclosure goes").
+    b_rm.add(f"Records marked as ineligible by automated tools (n = {_n(rb.get('automation_ineligible'))})")
     b_rm.add(f"Records removed for other reasons (n = {_n(rb.get('removed_other_reasons'))})")
 
     # Screening
@@ -181,7 +184,7 @@ def _draw(model, project_title="", traice=None, scale=2):
     b_scr.add(f"(n = {_n(_g(scr, 'records_screened') if scr.get('records_screened') is not None else ident.get('records_after_dedup'))})")
 
     b_scr_ex = newbox(excl_x, excl_w, GREY)
-    b_scr_ex.add("Records excluded", True)
+    b_scr_ex.add("Records excluded**", True)
     if tr:
         b_scr_ex.add(f"by Human (n = {_n(scr.get('excluded_by_human'))})")
         b_scr_ex.add(f"by AI (n = {_n(scr.get('excluded_by_ai'))})")
@@ -263,7 +266,9 @@ def _draw(model, project_title="", traice=None, scale=2):
         rh_ = max(h_main, h_excl)
         positions.append((yy, rh_))
         yy += rh_ + 34 * S
-    total_h = yy + 70 * S        # room for footnotes
+    warnings = [str(w) for w in (model.get("consistency_warnings") or [])]
+    banner_h = (24 * S + len(warnings) * 20 * S) if warnings else 0   # room for the provisional-numbers banner
+    total_h = yy + banner_h + 190 * S        # room for the banner (if any) + up to ~9 wrapped footnote lines
 
     # Real canvas
     img = Image.new("RGB", (W, int(total_h)), WHITE)
@@ -295,10 +300,35 @@ def _draw(model, project_title="", traice=None, scale=2):
         if i < len(rows) - 1:
             _down_arrow(draw, cx, y0 + rh_, positions[i + 1][0])
 
-    # footnotes
-    fy = positions[-1][0] + positions[-1][1] + 22 * S
+    # PROVISIONAL banner — drawn INTO the saved file itself (not just the on-screen warning), so a downloaded
+    # PNG/JPEG/Word copy can never silently carry numbers that don't reconcile, or a reconciliation that isn't
+    # finished, with nothing on the page itself saying so.
+    fy = positions[-1][0] + positions[-1][1] + 20 * S
+    if warnings:
+        band_h = 24 * S + len(warnings) * 20 * S
+        draw.rectangle([left, fy, W - 18 * S, fy + band_h], fill=(252, 231, 219), outline=(178, 58, 46), width=2)
+        draw.text((left + 10 * S, fy + 6 * S), "PROVISIONAL — counts do not yet reconcile / reconciliation incomplete:",
+                  font=fonts["b"], fill=(120, 30, 20))
+        wy = fy + 24 * S
+        for w in warnings:
+            for ln in _wrap(draw, "• " + w, fonts["s"], W - left - 18 * S - 20 * S):
+                draw.text((left + 10 * S, wy), ln, font=fonts["s"], fill=(120, 30, 20))
+                wy += 18 * S
+        fy += band_h + 16 * S
+
+    # footnotes — the two official PRISMA 2020 template notes are always printed (they're general guidance,
+    # not run-specific), plus the PRISMA-trAIce note when the AI-adapted variant applies.
+    for ln in _wrap(draw, "*Consider, if feasible to do so, reporting the number of records identified from "
+                          "each database or register searched (rather than the total number across all "
+                          "databases/registers).", fonts["s"], W - left - 18 * S):
+        draw.text((left, fy), ln, font=fonts["s"], fill=(90, 90, 90))
+        fy += 18 * S
+    for ln in _wrap(draw, "**If automation tools were used, indicate how many records were excluded by a "
+                          "human and how many were excluded by automation tools.", fonts["s"], W - left - 18 * S):
+        draw.text((left, fy), ln, font=fonts["s"], fill=(90, 90, 90))
+        fy += 18 * S
     if _is_traice(model, traice):
-        for ln in _wrap(draw, "*An automated tool is fundamentally different from an AI application and refers to "
+        for ln in _wrap(draw, "†An automated tool is fundamentally different from an AI application and refers to "
                               "rule-based tools for administrative tasks (e.g. deduplication).", fonts["s"], W - left - 18 * S):
             draw.text((left, fy), ln, font=fonts["s"], fill=(90, 90, 90))
             fy += 18 * S

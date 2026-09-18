@@ -132,25 +132,32 @@ def match_pdf_to_record(stem: str, master: pd.DataFrame) -> dict:
             if surname and len(surname) >= 3 and surname in stem_norm and str(r.get("year", "")).strip() == year:
                 return _hit(master, str(r["record_id"]), "author_year")
 
-    # 4) filename matched against a record title (truncated-title filenames are common)
-    best_id, best_method = None, None
+    # 4) filename matched against a record title (truncated-title filenames are common). Collect ALL
+    # candidates above threshold (not just the first) so two similarly-titled studies - a trial and
+    # its follow-up, say - can't have the PDF silently filed under whichever one happened to come
+    # first in the master's row order; a second, equally-plausible candidate makes it ambiguous.
+    stem_tokens = {t for t in re.split(r"[^a-z0-9]+", stem.lower()) if len(t) > 3}
+    candidates: list[tuple[str, str]] = []   # (record_id, method), in the order found
     for _, r in master.iterrows():
         title_norm = _norm(r.get("title", ""))
         if not title_norm or len(stem_norm) < 8:
             continue
         if stem_norm in title_norm or title_norm.startswith(stem_norm[:24]):
-            best_id, best_method = str(r["record_id"]), "title"
-            break
+            candidates.append((str(r["record_id"]), "title"))
+            continue
         # token-overlap fallback for reordered / partial titles
-        stem_tokens = {t for t in re.split(r"[^a-z0-9]+", stem.lower()) if len(t) > 3}
         title_tokens = {t for t in re.split(r"[^a-z0-9]+", str(r.get("title", "")).lower()) if len(t) > 3}
         if stem_tokens and title_tokens:
             overlap = len(stem_tokens & title_tokens) / len(stem_tokens)
             if overlap >= 0.6:
-                best_id, best_method = str(r["record_id"]), "title_tokens"
-                break
-    if best_id:
-        return _hit(master, best_id, best_method)
+                candidates.append((str(r["record_id"]), "title_tokens"))
+
+    if len(candidates) == 1:
+        return _hit(master, candidates[0][0], candidates[0][1])
+    if len(candidates) > 1:
+        ids = ", ".join(c[0] for c in candidates)
+        return {"record_id": stem, "title": stem, "year": "", "match_method": "AMBIGUOUS_MATCH",
+                "matched": False, "ambiguous_candidates": ids}
 
     # no match -> screen anyway under the file stem, flagged for the human
     return {"record_id": stem, "title": stem, "year": "", "match_method": "UNMATCHED", "matched": False}
@@ -235,16 +242,43 @@ def robust_parse(text: str, record_id: str) -> dict:
             continue
         conf = obj.get("confidence", 0)
         try:
-            conf = int(float(conf))
+            conf = float(conf)
         except (TypeError, ValueError):
-            conf = 0
+            conf = 0.0
+        if 0 < conf <= 1:       # some models answer on a 0-1 scale despite the 0-100 prompt instruction
+            conf *= 100
+        conf = max(0, min(100, int(conf)))
+
+        exclusion_reason = str(obj.get("exclusion_reason", "")).strip()
+        supporting_quote = str(obj.get("supporting_quote", "")).strip()
+        rationale = str(obj.get("rationale", "")).strip()
+
+        # Recall-first guardrail: the whole point of a full-text exclude is that a human can verify
+        # it in seconds from ONE reason + a verbatim quote. A syntactically-valid exclude that omits
+        # either must never pass through as a normal, unflagged exclusion (screening_fulltext.txt
+        # <Task> rule 1) - downgrade it the same way every other technical failure in this file does.
+        if decision == "exclude" and not (exclusion_reason and supporting_quote):
+            return {
+                "record_id": record_id,
+                "decision": "include",
+                "exclusion_reason": "",
+                "supporting_quote": "",
+                "rationale": ("AI excluded but did not return the required exclusion_reason + "
+                              "supporting_quote - cannot be trusted without both, so defaulted to "
+                              "include and flagged for human review. Model's own rationale, if any: "
+                              + (rationale or "(none given)")),
+                "confidence": 0,
+                "parse_ok": True,
+                "exclude_downgraded": True,
+            }
+
         return {
             "record_id": record_id,
             "decision": decision,
-            "exclusion_reason": str(obj.get("exclusion_reason", "")).strip(),
-            "supporting_quote": str(obj.get("supporting_quote", "")).strip(),
-            "rationale": str(obj.get("rationale", "")).strip(),
-            "confidence": max(0, min(100, conf)),
+            "exclusion_reason": exclusion_reason,
+            "supporting_quote": supporting_quote,
+            "rationale": rationale,
+            "confidence": conf,
             "parse_ok": True,
         }
 
@@ -483,18 +517,24 @@ def main() -> int:
     # 4) log
     n_fail = int((~res_df["parse_ok"]).sum())
     n_extract_fail = int((~res_df["extract_ok"]).sum())
+    n_downgraded = int(res_df.get("exclude_downgraded", pd.Series(dtype=bool)).fillna(False).sum())
     log = [
         f"EvidenceEngine full-text screening log - {ts}",
         f"Model: {args.model}    Prompt: {prompt_path.name} ({PROMPT_VERSION})    Criteria: {criteria_path.name}",
         f"PDFs assessed: {len(res_df)}   include={n_incl}  exclude={n_excl}",
         f"  parse/API failures (defaulted to 'include', flagged): {n_fail}",
         f"  text-extraction failures (defaulted to 'include', flagged): {n_extract_fail}",
+        f"  excludes missing a reason+quote, downgraded to 'include' (flagged): {n_downgraded}",
         "",
     ]
     if unmatched:
-        log.append(f"UNMATCHED PDFs ({len(unmatched)}) - screened under the file stem; fix the filename or master mapping:")
+        log.append(f"UNMATCHED / AMBIGUOUS PDFs ({len(unmatched)}) - screened under the file stem; fix the filename or master mapping:")
         for r in unmatched:
-            log.append(f"  - {r['pdf_path'].name}  (screened as record_id={r['record_id']})")
+            if r.get("match_method") == "AMBIGUOUS_MATCH":
+                log.append(f"  - {r['pdf_path'].name}  AMBIGUOUS: matches multiple studies "
+                           f"({r.get('ambiguous_candidates', '')}) - rename the file to REC_NNNN.pdf to disambiguate")
+            else:
+                log.append(f"  - {r['pdf_path'].name}  (screened as record_id={r['record_id']})")
         log.append("")
     log.append("Per-PDF decisions:")
     for _, r in res_df.iterrows():
@@ -505,6 +545,8 @@ def main() -> int:
             flags.append("EXTRACT_FAIL")
         if not r["parse_ok"]:
             flags.append("PARSE/API_FAIL")
+        if bool(r.get("exclude_downgraded", False)):
+            flags.append("EXCLUDE_MISSING_REASON/QUOTE->DOWNGRADED_TO_INCLUDE")
         if r["text_truncated"]:
             flags.append("TEXT_TRUNCATED")
         flag = ("  <-- " + ", ".join(flags)) if flags else ""
