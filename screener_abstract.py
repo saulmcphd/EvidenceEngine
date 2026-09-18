@@ -36,6 +36,7 @@ API keys are read from .env (e.g. GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_AP
 
 import argparse
 import concurrent.futures
+import hashlib
 import json
 import re
 import sys
@@ -235,6 +236,12 @@ def main() -> int:
 
     template = load_prompt_template(prompt_path)
     criteria = criteria_path.read_text(encoding="utf-8")
+    # A short fingerprint of the exact criteria text used for THIS run, recorded below — so a referee or a
+    # later reconciliation pass can confirm every record in the run saw the same eligibility rules, and a
+    # mid-run edit to criteria.txt (e.g. between two batches, or a paused-and-resumed run) is detectable
+    # rather than silently invisible. No integrity is enforced here — screening is recall-first and must
+    # never block on this — it is a record, not a gate.
+    criteria_sha1 = "sha1-" + hashlib.sha1(criteria.encode("utf-8")).hexdigest()[:12]
     df = pd.read_csv(master_path).fillna("")
     if "record_id" not in df.columns:
         print("ERROR: master CSV has no 'record_id' column - run master_records.py first.", file=sys.stderr)
@@ -312,19 +319,31 @@ def main() -> int:
         "abstract_included": int(counts.get("include", 0)),
         "abstract_excluded": int(counts.get("exclude", 0)),
         "abstract_uncertain": int(counts.get("uncertain", 0)),
+        "abstract_criteria_sha1": criteria_sha1,
     })
     sc_path.write_text(json.dumps(stage_counts, indent=2), encoding="utf-8")
+
+    # Detect (never block on) criteria.txt changing WHILE this run was in flight — a run can take a while
+    # over many records, so a batch/resume edit is realistic. Recall-first: report it, don't refuse the run.
+    criteria_changed_mid_run = criteria_path.exists() and criteria_path.read_text(encoding="utf-8") != criteria
+    if criteria_changed_mid_run:
+        print(f"WARNING: criteria.txt changed WHILE this run was in progress (started as {criteria_sha1}) - "
+              f"some records in this batch may have been screened against different eligibility rules than "
+              f"others. See Screening_Log_{ts}.txt.", file=sys.stderr)
 
     # 4) log
     n_parse_fail = int((~res_df["parse_ok"]).sum())
     log = [
         f"EvidenceEngine abstract screening log - {ts}",
-        f"Model: {args.model}    Prompt: {prompt_path.name}    Criteria: {criteria_path.name}",
+        f"Model: {args.model}    Prompt: {prompt_path.name}    Criteria: {criteria_path.name} ({criteria_sha1})",
         f"Records screened: {len(res_df)}",
         f"  include={stage_counts['abstract_included']}  exclude={stage_counts['abstract_excluded']}  uncertain={stage_counts['abstract_uncertain']}",
         f"  parse/API failures (defaulted to 'uncertain'): {n_parse_fail}",
-        "",
     ]
+    if criteria_changed_mid_run:
+        log.append(f"  WARNING: criteria.txt changed during this run (started as {criteria_sha1}) - "
+                   f"some records may have used different eligibility rules than others.")
+    log.append("")
     for _, r in res_df.iterrows():
         flag = "" if r["parse_ok"] else "  <-- PARSE/API FAILURE"
         log.append(f"{r['record_id']}: {r['decision']} ({r['confidence']}%){flag}")

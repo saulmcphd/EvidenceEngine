@@ -307,6 +307,31 @@ def call_model(model: str, prompt: str) -> str:
     return resp["choices"][0]["message"]["content"]
 
 
+# A dependency-free non-English heuristic (no langdetect install required): common English function words
+# are extremely frequent in real English prose (typically 25-40% of all words) and essentially absent from
+# other languages' text, even when both use the Latin alphabet. This is a coarse FLAG for the human
+# reconciler to route to a language-proficient reviewer, per playbook-full-text-screening's "handle non-
+# English records" guardrail — never a decision, and never used to exclude.
+_ENGLISH_STOPWORDS = frozenset((
+    "the and of to in is that for was with as this by are be on at from or an were which their it have has "
+    "not but all we you can our study studies participants patients results method methods conclusion "
+    "background objective introduction discussion "
+).split())
+
+
+def _likely_non_english(text: str, sample_chars: int = 3000, min_words: int = 40, min_stopword_frac: float = 0.06) -> bool:
+    """Best-effort flag, not a detector: True only when there's ENOUGH text to judge and the stopword
+    frequency is well below what real English prose shows. False (never flag) on short/ambiguous samples -
+    recall-first extends to this too; a wrong flag just sends a reconciler to double-check for nothing, but
+    a missed flag on real non-English text is the more costly failure mode to avoid triggering unnecessarily."""
+    sample = text[:sample_chars].lower()
+    words = re.findall(r"[a-z]+", sample)
+    if len(words) < min_words:
+        return False
+    stopword_frac = sum(1 for w in words if w in _ENGLISH_STOPWORDS) / len(words)
+    return stopword_frac < min_stopword_frac
+
+
 def screen_pdf(model: str, template: str, criteria: str, rec: dict, max_chars: int) -> dict:
     """Extract text from one PDF, screen it, and return a result dict. Never raises."""
     pdf_path = rec["pdf_path"]
@@ -327,6 +352,8 @@ def screen_pdf(model: str, template: str, criteria: str, rec: dict, max_chars: i
         }
         return _decorate(result, rec, n_chars=0, truncated=False, extract_ok=False)
 
+    non_english = _likely_non_english(text)
+
     if max_chars and len(text) > max_chars:
         text = text[:max_chars]
         truncated = True
@@ -345,13 +372,20 @@ def screen_pdf(model: str, template: str, criteria: str, rec: dict, max_chars: i
             "confidence": 0,
             "parse_ok": False,
         }
-    return _decorate(result, rec, n_chars=len(text), truncated=truncated, extract_ok=True)
+    if non_english:
+        # The AI still screens it (recall-first — never silently skipped), but the reconciler needs to know
+        # its own "verbatim quote" may be in a language they can't independently verify at face value.
+        result["rationale"] = (str(result.get("rationale", "")).strip() + " " +
+                               "[POSSIBLY NON-ENGLISH TEXT — the AI's quote/rationale may need a "
+                               "language-proficient reviewer to verify.").strip()
+    return _decorate(result, rec, n_chars=len(text), truncated=truncated, extract_ok=True, non_english=non_english)
 
 
-def _decorate(result: dict, rec: dict, n_chars: int, truncated: bool, extract_ok: bool) -> dict:
+def _decorate(result: dict, rec: dict, n_chars: int, truncated: bool, extract_ok: bool, non_english: bool = False) -> dict:
     result["title"] = str(rec.get("title", ""))
     result["year"] = str(rec.get("year", ""))
     result["pdf_file"] = rec["pdf_path"].name
+    result["likely_non_english"] = bool(non_english)
     result["match_method"] = rec.get("match_method", "")
     result["matched"] = bool(rec.get("matched", False))
     result["text_chars"] = n_chars
@@ -463,7 +497,7 @@ def main() -> int:
     # 1) wide results table
     cols = ["record_id", "title", "year", "decision", "confidence", "exclusion_reason",
             "supporting_quote", "rationale", "pdf_file", "match_method", "matched",
-            "text_chars", "text_truncated", "model", "prompt_file", "prompt_version"]
+            "text_chars", "text_truncated", "likely_non_english", "model", "prompt_file", "prompt_version"]
     res_df[cols].to_excel(outdir / f"FullText_Screening_{ts}.xlsx", index=False)
 
     # 2) audit file - shared reconciliation format + the two full-text-specific columns appended.
@@ -482,6 +516,7 @@ def main() -> int:
             "Exclusion_Reason": res_df["exclusion_reason"],
             "Supporting_Quote": res_df["supporting_quote"],
             "Text_Truncated": res_df["text_truncated"],  # True only if --max-chars cut the text
+            "Likely_Non_English": res_df["likely_non_english"],  # route to a language-proficient reviewer
         }
     )
     audit.to_csv(outdir / f"FullText_Audit_{ts}.csv", index=False)
@@ -549,6 +584,8 @@ def main() -> int:
             flags.append("EXCLUDE_MISSING_REASON/QUOTE->DOWNGRADED_TO_INCLUDE")
         if r["text_truncated"]:
             flags.append("TEXT_TRUNCATED")
+        if bool(r.get("likely_non_english", False)):
+            flags.append("LIKELY_NON_ENGLISH")
         flag = ("  <-- " + ", ".join(flags)) if flags else ""
         line = f"{r['record_id']} [{r['pdf_file']}]: {r['decision']} ({r['confidence']}%)"
         if r["decision"] == "exclude" and str(r["exclusion_reason"]).strip():
